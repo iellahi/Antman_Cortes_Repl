@@ -1,0 +1,18 @@
+macro,value,note
+tOneDidYrsedPctBase,7.569048547102374,Table 1 DiD years of ed as pct of 1931-35 HiSeg mean
+tOneDidJrhighPctBase,18.78340294760759,Table 1 DiD jr high as pct of 1931-35 HiSeg mean
+tOneDidHschoolPctBase,16.76286252048942,Table 1 DiD high school as pct of 1931-35 HiSeg mean
+tOneDidJrhighPp,14.60360329487959,Table 1 DiD jr high in percentage points
+tOneDidHschoolPp,8.0259943668554,Table 1 DiD high school in percentage points
+tTwoAYrsedPctBase,9.012154589976856,Table 2A years of ed as pct of 1931-35 HiSeg mean
+tTwoAJrhighPctBase,19.68598699003855,Table 2A jr high as pct of 1931-35 HiSeg mean
+tTwoAHschoolPctBase,18.74828122569694,Table 2A high school as pct of 1931-35 HiSeg mean
+tTwoAJrhighPp,15.30533872230539,Table 2A jr high in percentage points
+tTwoAHschoolPp,8.97660523802179,Table 2A high school in percentage points
+pbLoSegN,94,Panel B LoSeg people total
+pbLoSegPreN,39,Panel B LoSeg born 1921-25
+pbLoSegPostN,55,Panel B LoSeg born 1926-30
+pbHiSegN,3404,Panel B HiSeg people total
+pbLooMin,-.5911170074270733,Panel B years of ed leave-one-out over LoSeg people min
+pbLooMax,-.2276694523152118,Panel B years of ed leave-one-out over LoSeg people max
+pbLooMaxShift,.1864158505930008,Panel B years of ed largest move from dropping one LoSeg person

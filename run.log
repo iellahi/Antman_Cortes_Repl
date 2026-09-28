@@ -1,0 +1,3512 @@
+--------------------------------------------------------------------------------
+      name:  master
+       log:  <repo root>/run.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. 
+. * 2. Environment
+. ******************************************************************************
+> **
+. 
+. display "Stata version: " c(stata_version)
+Stata version: 19
+
+. display "OS:            " c(os) " (" c(osdtl) ")"
+OS:            Windows (64-bit)
+
+. display "Root:          $root"
+Root:          <repo root>
+
+. display "Started:       " c(current_date) " " c(current_time)
+Started:       <date>
+
+. 
+. * Vendored estout first on adopath, never ssc install
+. adopath ++ "$root/code/ado/estout"
+  [1]              "<repo root>/code/ado/estout"
+  [2]  (BASE)      "C:\Program Files\Stata19\ado\base/"
+  [3]  (SITE)      "C:\Program Files\Stata19\ado\site/"
+  [4]              "."
+  [5]  (PERSONAL)  "<ado>\personal/"
+  [6]  (PLUS)      "<ado>\plus/"
+  [7]  (OLDPLACE)  "c:\ado/"
+
+. which esttab
+<repo root>/code/ado/estout\esttab.ado
+*! version 2.1.4  13apr2026  Ben Jann
+*! wrapper for estout
+
+. which estout
+<repo root>/code/ado/estout\estout.ado
+*! version 3.33  23mar2026  Ben Jann
+
+. which eststo
+<repo root>/code/ado/estout\eststo.ado
+*! version 1.1.0  05nov2008  Ben Jann
+
+. which estadd
+<repo root>/code/ado/estout\estadd.ado
+*! version 2.3.5  05feb2016  Ben Jann
+
+. which estpost
+<repo root>/code/ado/estout\estpost.ado
+*! version 1.2.2  10feb2023  Ben Jann
+
+. 
+. * raw extract MUST be in place
+. confirm file "$raw/data-CA.dta"
+
+. 
+. 
+. * 3. Pipeline
+. ******************************************************************************
+> **
+. 
+. * Blank = everything
+. assert inlist("$only", "", "01", "02", "03", "04", "05", "06")
+
+. 
+. if "$only" == "" | "$only" == "01" do "$root/code/01_build_data.do"
+
+. /*****************************************************************************
+> **
+> Title:   Data Construction for Antman and Cortes (2023) Replication
+> Purpose: Clean and prepare 1980, 1990, and 2000 Census data for analysis.
+>          In:  data/raw/data-CA.dta (IPUMS USA extract, California)
+>          Out: data/clean/antman_cortes_clean.dta
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close build
+
+. log using "$log/01_build_data.log", replace text name(build)
+(file <repo root>/output/logs/01_build_data.l
+    > og not found)
+--------------------------------------------------------------------------------
+      name:  build
+       log:  <repo root>/output/logs/01_build_data.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. 
+. * 1. County Classification
+. ******************************************************************************
+> **
+. 
+. * HiSeg / LoSeg counties from Antman & Cortes (2023) p. 893, fn 15
+. * HiSeg = above 75th pctile of 1940 Hispanic share, LoSeg = below 25th
+. clear
+
+. input int countyfip byte hiseg str15 county_name
+
+     county~p     hiseg      county_name
+  1.  19 1 "Fresno"
+  2.  25 1 "Imperial"
+  3.  31 1 "Kings"
+  4.  39 1 "Madera"
+  5.  47 1 "Merced"
+  6.  53 1 "Monterey"
+  7.  59 1 "Orange"
+  8.  65 1 "Riverside"
+  9.  71 1 "San Bernardino"
+ 10.  83 1 "Santa Barbara"
+ 11. 107 1 "Tulare"
+ 12. 111 1 "Ventura"
+ 13. 113 1 "Yolo"
+ 14.   7 0 "Butte"
+ 15.  17 0 "El Dorado"
+ 16.  23 0 "Humboldt"
+ 17.  89 0 "Shasta"
+ 18.  97 0 "Sonoma"
+ 19. end
+
+. 
+. label variable hiseg "High Segregation County (Treatment)"
+
+. label variable county_name "County Name (HiSeg/LoSeg counties only)"
+
+. 
+. * Verify: 13 HiSeg, 5 LoSeg, 1 row / county
+. isid countyfip
+
+. count if hiseg == 1
+  13
+
+. assert r(N) == 13
+
+. count if hiseg == 0
+  5
+
+. assert r(N) == 5
+
+. 
+. tempfile counties
+
+. save "`counties'"
+file <tmp>\ST_1134_000001.tmp saved as .dta format
+
+. 
+. 
+. * 2. Census Data and Merge
+. ******************************************************************************
+> **
+. 
+. use "$raw/data-CA.dta", clear
+
+. 
+. * Sample size at each step
+. count
+  4,332,885
+
+. 
+. * countyfip 0 = county not identified by IPUMS
+. * Gets hiseg = . like other non-study counties
+. merge m:1 countyfip using "`counties'"
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                     3,097,500
+        from master                 3,097,500  (_merge==1)
+        from using                          0  (_merge==2)
+
+    Matched                         1,235,385  (_merge==3)
+    -----------------------------------------
+
+. tab _merge
+
+   Matching result from |
+                  merge |      Freq.     Percent        Cum.
+------------------------+-----------------------------------
+        Master only (1) |  3,097,500       71.49       71.49
+            Matched (3) |  1,235,385       28.51      100.00
+------------------------+-----------------------------------
+                  Total |  4,332,885      100.00
+
+. 
+. * No county-only rows, every study county in extract
+. assert _merge != 2
+
+. drop _merge
+
+. 
+. * Study counties by census year
+. tab county_name year
+
+    County Name |
+   (HiSeg/LoSeg |           census year
+ counties only) |      1980       1990       2000 |     Total
+----------------+---------------------------------+----------
+          Butte |     7,174      8,825     10,962 |    26,961 
+      El Dorado |         0      6,416      7,657 |    14,073 
+         Fresno |    25,777     32,873     39,877 |    98,527 
+       Humboldt |     5,424      7,224      9,134 |    21,782 
+       Imperial |         0      6,679      8,846 |    15,525 
+          Kings |         0      4,837      6,427 |    11,264 
+         Madera |         0          0      6,408 |     6,408 
+         Merced |     6,760      8,871     10,763 |    26,394 
+       Monterey |    14,525     17,092          0 |    31,617 
+         Orange |    96,935    123,183    145,994 |   366,112 
+      Riverside |         0     53,640     72,306 |   125,946 
+ San Bernardino |    45,001     62,956     77,945 |   185,902 
+  Santa Barbara |    14,969     19,072     21,947 |    55,988 
+         Shasta |     5,830      7,915      9,379 |    23,124 
+         Sonoma |    15,012     17,228     23,401 |    55,641 
+         Tulare |    12,341     15,053     24,084 |    51,478 
+        Ventura |    26,449     33,313     37,805 |    97,567 
+           Yolo |     5,699      7,040      8,337 |    21,076 
+----------------+---------------------------------+----------
+          Total |   281,896    432,217    521,272 | 1,235,385 
+
+. 
+. 
+. * 3. Sample Construction I
+. ******************************************************************************
+> **
+. 
+. * Keep only people born in California
+. keep if bpl == 6
+(2,271,377 observations deleted)
+
+. count
+  2,061,508
+
+. 
+. * keep cohorts 2-26 in 1947
+. gen age1947 = 1947 - birthyr
+
+. label variable age1947 "Age in 1947 (Mendez Decision)"
+
+. keep if inrange(age1947, 2, 26)
+(1,821,924 observations deleted)
+
+. count
+  239,584
+
+. 
+. * Hispanic: HISPAN 1-4. Not hispan > 0, code 9 = not reported
+. gen hispanic = inrange(hispan, 1, 4)
+
+. label variable hispanic "Indicator for Hispanic Ethnicity"
+
+. 
+. * Non-Hispanic white: HISPAN 0 & RACE 1, minus RACED 110 (Spanish write-in)
+. * RACED 110 = 5 obs in Panel C sample, dropping them matches paper's N
+. gen nhwhite = hispan == 0 & race == 1 & raced != 110
+
+. label variable nhwhite "Non-Hispanic White (HISPAN 0, RACE 1, not RACED 110)"
+
+. 
+. * Keep Hispanics and Non-Hispanic Whites
+. keep if hispanic == 1 | nhwhite == 1
+(18,034 observations deleted)
+
+. count
+  221,550
+
+. assert hispanic + nhwhite == 1
+
+. 
+. * Note: NOT dropping observations based on the HiSeg variable at this stage.
+. 
+. 
+. * 4. Sample Construction II
+. ******************************************************************************
+> **
+. 
+. * Tables 1/2: treated ages 2-6 in 1947 (born 1941-45)
+. * Comparison ages 12-16 (born 1931-35)
+. * 1936-40 left out: partly treated, in elementary school at Mendez (Duflo 2001
+>  style)
+. gen sample_tables = inrange(age1947, 2, 6) | inrange(age1947, 12, 16)
+
+. label variable sample_tables "In Table 1/2 Sample (Ages 2-6 or 12-16)"
+
+. 
+. * Table 2 Panel B placebo: born 1921-30, done with school before Mendez
+. gen sample_placebo = inrange(birthyr, 1921, 1930)
+
+. label variable sample_placebo "In Table 2 Panel B Placebo Sample (Born 1921-30
+> )"
+
+. 
+. * Event study: Hispanic, all cohorts 1921-45, HiSeg/LoSeg counties
+. gen es_sample = hispanic == 1 & inrange(birthyr, 1921, 1945) & !missing(hiseg)
+
+. label variable es_sample "Event-study sample (Hispanic, cohorts 1921-45, HiSeg
+> /LoSeg counties)"
+
+. 
+. * Verify
+. tab sample_tables hispanic
+
+  In Table |
+1/2 Sample |     Indicator for
+ (Ages 2-6 |  Hispanic Ethnicity
+ or 12-16) |         0          1 |     Total
+-----------+----------------------+----------
+         0 |    96,804     19,642 |   116,446 
+         1 |    87,834     17,270 |   105,104 
+-----------+----------------------+----------
+     Total |   184,638     36,912 |   221,550 
+
+. tab sample_placebo hispanic
+
+In Table 2 |
+   Panel B |
+   Placebo |
+    Sample |     Indicator for
+     (Born |  Hispanic Ethnicity
+  1921-30) |         0          1 |     Total
+-----------+----------------------+----------
+         0 |   125,873     25,162 |   151,035 
+         1 |    58,765     11,750 |    70,515 
+-----------+----------------------+----------
+     Total |   184,638     36,912 |   221,550 
+
+. tab es_sample
+
+Event-study |
+     sample |
+ (Hispanic, |
+    cohorts |
+   1921-45, |
+HiSeg/LoSeg |
+  counties) |      Freq.     Percent        Cum.
+------------+-----------------------------------
+          0 |    209,857       94.72       94.72
+          1 |     11,693        5.28      100.00
+------------+-----------------------------------
+      Total |    221,550      100.00
+
+. 
+. 
+. * 5. Variable Construction I
+. ******************************************************************************
+> **
+. 
+. * A. Outcome Variables
+. ******************************************************************************
+> **
+. 
+. * Years of Education
+. do "$root/code/lib/yrsed.do"
+
+. /*****************************************************************************
+> **
+> Title:   Years of Schooling Crosswalk
+> Purpose: EDUCD -> years of schooling (0-20). Called by 01_build_data.do,
+>          needs educd in memory, creates yrsed.
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. gen yrsed=.
+(221,550 missing values generated)
+
+. replace yrsed=0 if inlist(educd, 2, 10, 11, 12)
+(1,911 real changes made)
+
+. replace yrsed=1 if inlist(educd, 13, 14)
+(475 real changes made)
+
+. replace yrsed=2 if educd==15
+(152 real changes made)
+
+. replace yrsed=3 if educd==16
+(173 real changes made)
+
+. replace yrsed=4 if educd==17
+(192 real changes made)
+
+. replace yrsed=5 if inlist(educd, 20, 21, 22)
+(3,183 real changes made)
+
+. replace yrsed=6 if educd==23
+(518 real changes made)
+
+. replace yrsed=7 if inlist(educd, 24, 25)
+(1,986 real changes made)
+
+. replace yrsed=8 if educd==26
+(1,967 real changes made)
+
+. replace yrsed=9 if educd==30
+(5,114 real changes made)
+
+. replace yrsed=10 if educd==40
+(8,310 real changes made)
+
+. replace yrsed=11 if inlist(educd, 50, 61)
+(14,002 real changes made)
+
+. replace yrsed=12 if inlist(educd, 60, 62, 65)  // 12 yrs or GED or <1 yr coll
+(72,776 real changes made)
+
+. replace yrsed=13 if inlist(educd, 70, 71) // 1 yr college or 1 yr and no degre
+> e
+(37,161 real changes made)
+
+. replace yrsed=14 if inlist(educd, 80, 81, 82, 83) // 2 yrs college or Associat
+> es
+(20,263 real changes made)
+
+. replace yrsed=15 if educd==90
+(3,527 real changes made)
+
+. replace yrsed=16 if inlist(educd, 100, 101) // 4 yrs college or Bachelors
+(27,732 real changes made)
+
+. replace yrsed=17 if educd==110
+(3,400 real changes made)
+
+. replace yrsed=18 if inlist(educd, 111, 114) // 6 yrs college or Masters
+(10,813 real changes made)
+
+. replace yrsed=19 if inlist(educd, 112, 115) // 7 yrs college or Prof Deg
+(4,462 real changes made)
+
+. replace yrsed=20 if inlist(educd, 113, 116) // 8+ yrs college or doctoral degr
+> ee
+(3,433 real changes made)
+
+. 
+. label var yrsed "Years of schooling"
+
+. 
+end of do-file
+
+. label variable yrsed "Years of Education"
+
+. 
+. * crosswalk has to cover every EDUCD code left
+. count if missing(yrsed)
+  0
+
+. assert !missing(yrsed)
+
+. 
+. * Jr. High Completion (8+ years)
+. gen jrhigh = yrsed >= 8
+
+. label variable jrhigh "Completed Jr. High (8+ Years)"
+
+. 
+. * High School Completion (12+ years)
+. gen hschool = yrsed >= 12
+
+. label variable hschool "Completed High School (12+ Years)"
+
+. 
+. 
+. * B. Explanatory Variables (Difference-in-Differences)
+. ******************************************************************************
+> **
+. 
+. * Post-Treatment (PostMendez), born 1941-45
+. gen post_mendez = inrange(birthyr, 1941, 1945)
+
+. label variable post_mendez "Post-Mendez Cohort (Born 1941-45)"
+
+. 
+. * Interaction Term (DiD Estimator), missing outside HiSeg/LoSeg counties
+. gen did_interaction = hiseg * post_mendez
+(154,363 missing values generated)
+
+. label variable did_interaction "HiSeg x PostMendez"
+
+. 
+. * Placebo post cohort for Panel B, born 1926-30
+. gen placebo_post = inrange(birthyr, 1926, 1930)
+
+. label variable placebo_post "Placebo Post-Mendez Cohort (Born 1926-30)"
+
+. 
+. * Inspect
+. summarize yrsed jrhigh hschool hiseg post_mendez did_interaction placebo_post
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |    221,550     12.9833    3.015978          0         20
+      jrhigh |    221,550    .9612277    .1930522          0          1
+     hschool |    221,550    .8285579    .3768957          0          1
+       hiseg |     67,187    .8148005    .3884622          0          1
+ post_mendez |    221,550    .3068743    .4611978          0          1
+-------------+---------------------------------------------------------
+did_intera~n |     67,187     .256627     .436775          0          1
+placebo_post |    221,550    .1699887    .3756237          0          1
+
+. 
+. 
+. * 6. Variable Construction II
+. ******************************************************************************
+> **
+. 
+. * Table 2 notes: indicator for female, 1990 census, 2000 census
+. * Fixed effects can be handled directly in regression command
+. 
+. * Female Indicator
+. gen female = sex == 2
+
+. label variable female "Female Indicator (1=Female, 0=Male)"
+
+. 
+. * Census Year Indicators
+. gen census1990 = year == 1990
+
+. label variable census1990 "Census 1990 Indicator"
+
+. 
+. gen census2000 = year == 2000
+
+. label variable census2000 "Census 2000 Indicator"
+
+. 
+. * Verify
+. assert inlist(year, 1980, 1990, 2000)
+
+. tab sex female
+
+              |   Female Indicator
+              |  (1=Female, 0=Male)
+          sex |         0          1 |     Total
+--------------+----------------------+----------
+         male |   106,645          0 |   106,645 
+       female |         0    114,905 |   114,905 
+--------------+----------------------+----------
+        Total |   106,645    114,905 |   221,550 
+
+. tab year census1990
+
+    census | Census 1990 Indicator
+      year |         0          1 |     Total
+-----------+----------------------+----------
+      1980 |    81,815          0 |    81,815 
+      1990 |         0     75,395 |    75,395 
+      2000 |    64,340          0 |    64,340 
+-----------+----------------------+----------
+     Total |   146,155     75,395 |   221,550 
+
+. tab year census2000
+
+    census | Census 2000 Indicator
+      year |         0          1 |     Total
+-----------+----------------------+----------
+      1980 |    81,815          0 |    81,815 
+      1990 |    75,395          0 |    75,395 
+      2000 |         0     64,340 |    64,340 
+-----------+----------------------+----------
+     Total |   157,210     64,340 |   221,550 
+
+. 
+. 
+. * 7. Analysis Sample Sizes
+. ******************************************************************************
+> **
+. 
+. * Tables 1 & 2 Panel A: Hispanic, HiSeg/LoSeg, born 1931-35 or 1941-45
+. count if hispanic == 1 & sample_tables == 1 & !missing(hiseg)
+  5,630
+
+. tab post_mendez hiseg if hispanic == 1 & sample_tables == 1 & !missing(hiseg)
+
+Post-Mende |
+  z Cohort |   High Segregation
+     (Born |  County (Treatment)
+  1941-45) |         0          1 |     Total
+-----------+----------------------+----------
+         0 |        77      2,193 |     2,270 
+         1 |       143      3,217 |     3,360 
+-----------+----------------------+----------
+     Total |       220      5,410 |     5,630 
+
+. 
+. * Table 2 Panel B: Hispanic placebo cohorts
+. count if hispanic == 1 & sample_placebo == 1 & !missing(hiseg)
+  3,498
+
+. 
+. * Table 2 Panel C: non-Hispanic whites
+. count if nhwhite == 1 & sample_tables == 1 & !missing(hiseg)
+  26,884
+
+. 
+. * Event study
+. count if es_sample == 1
+  11,693
+
+. 
+. 
+. * 8. Save Working Data Set
+. ******************************************************************************
+> **
+. 
+. * Order variables for easier viewing
+. order countyfip county_name year birthyr age1947 sex race raced hispan educd /
+> //
+>     yrsed jrhigh hschool hispanic nhwhite hiseg sample_tables post_mendez ///
+>     did_interaction sample_placebo placebo_post es_sample female census1990 ce
+> nsus2000
+
+. 
+. compress
+  variable age1947 was float now byte
+  variable yrsed was float now byte
+  variable jrhigh was float now byte
+  variable hschool was float now byte
+  variable hispanic was float now byte
+  variable nhwhite was float now byte
+  variable sample_tables was float now byte
+  variable post_mendez was float now byte
+  variable did_interaction was float now byte
+  variable sample_placebo was float now byte
+  variable placebo_post was float now byte
+  variable es_sample was float now byte
+  variable female was float now byte
+  variable census1990 was float now byte
+  variable census2000 was float now byte
+  variable bpl was int now byte
+  variable bpld was long now int
+  variable county_name was str15 now str14
+  (10,855,950 bytes saved)
+
+. sort year serial pernum
+
+. 
+. * Signature so 02-06 confirm same file
+. datasignature set, reset
+  221550:39(73283):1578395606:1164874226       (data signature set)
+
+. save "$clean/antman_cortes_clean.dta", replace
+(file <repo root>/data/clean/antman_cortes_cl
+    > ean.dta not found)
+file <repo root>/data/clean/antman_cortes_cl
+    > ean.dta saved
+
+. 
+. * Verify
+. describe
+
+Contains data from <repo root>/data/clean/antman_cortes_clean.dta
+ Observations:       221,550                  
+    Variables:            39                  <date>
+--------------------------------------------------------------------------------
+Variable      Storage   Display    Value
+    name         type    format    label      Variable label
+--------------------------------------------------------------------------------
+countyfip       int     %8.0g                 county (fips code, identifiable
+                                                counties only)
+county_name     str14   %14s                  County Name (HiSeg/LoSeg counties
+                                                only)
+year            int     %8.0g      YEAR       census year
+birthyr         int     %8.0g                 year of birth
+age1947         byte    %9.0g                 Age in 1947 (Mendez Decision)
+sex             byte    %8.0g      SEX        sex
+race            byte    %8.0g      RACE       race [general version]
+raced           int     %8.0g      RACED      race [detailed version]
+hispan          byte    %8.0g      HISPAN     hispanic origin [general version]
+educd           int     %8.0g      EDUCD      educational attainment [detailed
+                                                version]
+yrsed           byte    %9.0g                 Years of Education
+jrhigh          byte    %9.0g                 Completed Jr. High (8+ Years)
+hschool         byte    %9.0g                 Completed High School (12+ Years)
+hispanic        byte    %9.0g                 Indicator for Hispanic Ethnicity
+nhwhite         byte    %9.0g                 Non-Hispanic White (HISPAN 0, RACE
+                                                1, not RACED 110)
+hiseg           byte    %8.0g                 High Segregation County
+                                                (Treatment)
+sample_tables   byte    %9.0g                 In Table 1/2 Sample (Ages 2-6 or
+                                                12-16)
+post_mendez     byte    %9.0g                 Post-Mendez Cohort (Born 1941-45)
+did_interaction byte    %9.0g                 HiSeg x PostMendez
+sample_placebo  byte    %9.0g                 In Table 2 Panel B Placebo Sample
+                                                (Born 1921-30)
+placebo_post    byte    %9.0g                 Placebo Post-Mendez Cohort (Born
+                                                1926-30)
+es_sample       byte    %9.0g                 Event-study sample (Hispanic,
+                                                cohorts 1921-45, HiSeg/LoSeg
+                                                counties)
+female          byte    %9.0g                 Female Indicator (1=Female,
+                                                0=Male)
+census1990      byte    %9.0g                 Census 1990 Indicator
+census2000      byte    %9.0g                 Census 2000 Indicator
+sample          long    %12.0g     SAMPLE     ipums sample identifier
+serial          long    %12.0g                household serial number
+hhwt            int     %8.0g                 household weight
+cluster         double  %12.0g                household cluster for variance
+                                                estimation
+statefip        byte    %8.0g      STATEFIP   state (fips code)
+strata          int     %8.0g                 household strata for variance
+                                                estimation
+gq              byte    %8.0g      GQ         group quarters status
+pernum          byte    %8.0g                 person number in sample unit
+perwt           int     %8.0g                 person weight
+hispand         int     %8.0g      HISPAND    hispanic origin [detailed version]
+bpl             byte    %8.0g      BPL        birthplace [general version]
+bpld            int     %12.0g     BPLD       birthplace [detailed version]
+citizen         byte    %8.0g      CITIZEN    citizenship status
+educ            byte    %8.0g      EDUC       educational attainment [general
+                                                version]
+--------------------------------------------------------------------------------
+Sorted by: year  serial  pernum
+
+. codebook, compact
+
+Variable         Obs Unique      Mean       Min       Max  Label
+--------------------------------------------------------------------------------
+countyfip     221550     36  51.12062         0       113  county (fips code,...
+county_name    67187     18         .         .         .  County Name (HiSeg...
+year          221550      3  1989.211      1980      2000  census year
+birthyr       221550     25  1934.881      1921      1945  year of birth
+age1947       221550     25  12.11865         2        26  Age in 1947 (Mende...
+sex           221550      2  1.518641         1         2  sex
+race          221550      9  1.246269         1         9  race [general vers...
+raced         221550     62   124.983       100       920  race [detailed ver...
+hispan        221550      5    .23935         0         4  hispanic origin [g...
+educd         221550     39  71.34893         2       116  educational attain...
+yrsed         221550     21   12.9833         0        20  Years of Education
+jrhigh        221550      2  .9612277         0         1  Completed Jr. High...
+hschool       221550      2  .8285579         0         1  Completed High Sch...
+hispanic      221550      2   .166608         0         1  Indicator for Hisp...
+nhwhite       221550      2   .833392         0         1  Non-Hispanic White...
+hiseg          67187      2  .8148005         0         1  High Segregation C...
+sample_tab~s  221550      2  .4744031         0         1  In Table 1/2 Sampl...
+post_mendez   221550      2  .3068743         0         1  Post-Mendez Cohort...
+did_intera~n   67187      2   .256627         0         1  HiSeg x PostMendez
+sample_pla~o  221550      2  .3182803         0         1  In Table 2 Panel B...
+placebo_post  221550      2  .1699887         0         1  Placebo Post-Mende...
+es_sample     221550      2  .0527782         0         1  Event-study sample...
+female        221550      2  .5186414         0         1  Female Indicator (...
+census1990    221550      2  .3403069         0         1  Census 1990 Indicator
+census2000    221550      2  .2904085         0         1  Census 2000 Indicator
+sample        221550      3  198922.1    198001    200001  ipums sample ident...
+serial        221550 178527   1103519    192090   3059905  household serial n...
+hhwt          221550     88  19.47662         0       104  household weight
+cluster       221550 185538  1.99e+12  1.98e+12  2.00e+12  household cluster ...
+statefip      221550      1         6         6         6  state (fips code)
+strata        221550    121  42.01395         4       130  household strata f...
+gq            221550      5  1.033058         1         5  group quarters status
+pernum        221550     16  1.460876         1        18  person number in s...
+perwt         221550     97  19.54914         0       129  person weight
+hispand       221550     38  25.99877         0       499  hispanic origin [d...
+bpl           221550      1         6         6         6  birthplace [genera...
+bpld          221550      1       600       600       600  birthplace [detail...
+citizen       221550      1         0         0         0  citizenship status
+educ          221550     12  7.003746         0        11  educational attain...
+--------------------------------------------------------------------------------
+
+. 
+. log close build
+      name:  build
+       log:  <repo root>/output/logs/01_build_data.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. if "$only" == "" | "$only" == "02" do "$root/code/02_figure1.do"
+
+. /*****************************************************************************
+> **
+> Title:   Figure 1 Replication for Antman and Cortes (2023)
+> Purpose: Replicate estimates for Figure 1
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close fig1
+
+. log using "$log/02_figure1.log", replace text name(fig1)
+(file <repo root>/output/logs/02_figure1.log
+    not found)
+--------------------------------------------------------------------------------
+      name:  fig1
+       log:  <repo root>/output/logs/02_figure1.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. * Load clean dataset from 01_build_data.do
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. 
+. * 1. Data Preparation
+. ******************************************************************************
+> **
+. 
+. * HiSeg & LoSeg counties only
+. keep if !missing(hiseg)
+(154,363 observations deleted)
+
+. count
+  67,187
+
+. 
+. * Group 1: Hispanic in HiSeg
+. gen ed_hisp_hi = yrsed if hispanic == 1 & hiseg == 1
+(55,917 missing values generated)
+
+. label variable ed_hisp_hi "Years of Education, Hispanic in HiSeg"
+
+. 
+. * Group 2: Hispanic in LoSeg
+. gen ed_hisp_lo = yrsed if hispanic == 1 & hiseg == 0
+(66,764 missing values generated)
+
+. label variable ed_hisp_lo "Years of Education, Hispanic in LoSeg"
+
+. 
+. * Group 3: Non-Hispanic White in HiSeg
+. gen ed_white_hi = yrsed if hispanic == 0 & hiseg == 1
+(23,713 missing values generated)
+
+. label variable ed_white_hi "Years of Education, Non-Hispanic White in HiSeg"
+
+. 
+. * Group 4: Non-Hispanic White in LoSeg
+. gen ed_white_lo = yrsed if hispanic == 0 & hiseg == 0
+(55,167 missing values generated)
+
+. label variable ed_white_lo "Years of Education, Non-Hispanic White in LoSeg"
+
+. 
+. * Aggregate to cohort (birth year) means
+. collapse (mean) mean_hisp_hi=ed_hisp_hi ///
+>                 mean_hisp_lo=ed_hisp_lo ///
+>                 mean_white_hi=ed_white_hi ///
+>                 mean_white_lo=ed_white_lo, by(birthyr)
+
+. 
+. * labels for graph
+. label variable mean_hisp_hi "Hispanic in HiSeg"
+
+. label variable mean_hisp_lo "Hispanic in LoSeg"
+
+. label variable mean_white_hi "Non-Hispanic White in HiSeg"
+
+. label variable mean_white_lo "Non-Hispanic White in LoSeg"
+
+. 
+. * Age at Mendez decision (1947) for x-axis
+. gen age1947 = 1947 - birthyr
+
+. label variable age1947 "Age in 1947 (Mendez Decision)"
+
+. 
+. * 1 row / cohort, 1921-45
+. assert _N == 25
+
+. order birthyr age1947
+
+. 
+. * check aggregation
+. list, sep(0) noobs
+
+  +---------------------------------------------------------------+
+  | birthyr   age1947   mean_h~i   mean_h~o   mean_w~i   mean_w~o |
+  |---------------------------------------------------------------|
+  |    1921        26   8.533937       12.4   12.66698   12.57713 |
+  |    1922        25   8.969432       10.8   12.81339    12.4454 |
+  |    1923        24   8.425197     11.875    12.9941   12.85989 |
+  |    1924        23   9.217391      11.75   13.01389   12.46384 |
+  |    1925        22   8.831522         12   12.88897   12.78195 |
+  |    1926        21   9.131507   12.70588   13.07195   12.74797 |
+  |    1927        20    8.77202   13.16667   13.14307   12.69923 |
+  |    1928        19   8.836493         13    13.2193   12.77662 |
+  |    1929        18   9.056701         12   13.18007   12.64304 |
+  |    1930        17    9.40606   11.54545   13.10884   12.78409 |
+  |    1931        16   9.754967   11.76471   13.22005   12.75515 |
+  |    1932        15   9.804706   12.30769   13.34164   12.91471 |
+  |    1933        14   10.08029   11.94444   13.34096   12.91375 |
+  |    1934        13   10.37002   12.17647   13.22533   12.85294 |
+  |    1935        12   10.59958   12.16667   13.42181   12.96709 |
+  |    1936        11   10.80462   11.94737   13.43024   13.06667 |
+  |    1937        10   11.11659   12.28571   13.31032   12.95217 |
+  |    1938         9   10.84909         13   13.52146      12.93 |
+  |    1939         8   11.44124   12.43333   13.52584   13.04626 |
+  |    1940         7   11.01449   11.85714   13.46147   13.30605 |
+  |    1941         6   11.55706      13.25   13.43939   13.29708 |
+  |    1942         5   11.57633   12.56522   13.54221   13.62286 |
+  |    1943         4   11.65007   13.02326   13.59122   13.58052 |
+  |    1944         3   11.71671      12.76   13.72155   13.54759 |
+  |    1945         2   11.79396   12.42857    13.7135   13.71754 |
+  +---------------------------------------------------------------+
+
+. 
+. * Cohort means for repo
+. export delimited using "$tab/fig1_cohort_means.csv", replace
+(file <repo root>/output/tables/fig1_cohort_m
+    > eans.csv not found)
+file <repo root>/output/tables/fig1_cohort_means.csv saved
+
+. 
+. 
+. * 2. Create the Graph
+. ******************************************************************************
+> **
+. 
+. twoway ///
+>     (line mean_white_hi age1947, lcolor(dkgreen) lpattern(longdash) lwidth(med
+> ium)) ///
+>     (line mean_white_lo age1947, lcolor(orange) lpattern(shortdash) lwidth(med
+> ium)) ///
+>     (line mean_hisp_lo age1947, lcolor(red) lpattern(dash) lwidth(medium)) ///
+>     (line mean_hisp_hi age1947, lcolor(navy) lpattern(solid) lwidth(medium)), 
+> ///
+>     ///
+>     /* Y-Axis Label and Range */ ///
+>     ytitle("Average years of education") ///
+>     ylabel(8(1)14, angle(0)) ///
+>     ///
+>     /* X-Axis Setup */ ///
+>     xscale(reverse) ///
+>     xlabel(26(1)2, labsize(small)) ///
+>     ///
+>     /* X-Title with Annotations */ ///
+>     /* separate title lines put text below the numbers */ ///
+>     xtitle(" " "Completed schooling                                           
+>  In school                                            Prior to schooling", siz
+> e(small)) ///
+>     ///
+>     /* Legend Placement */ ///
+>     legend(order(1 "Non-Hispanic White in HiSeg" ///
+>                  2 "Non-Hispanic White in LoSeg" ///
+>                  3 "Hispanic in LoSeg" ///
+>                  4 "Hispanic in HiSeg") ///
+>            ring(0) position(5) cols(1) region(lcolor(black) fcolor(white)) siz
+> e(small)) ///
+>     ///
+>     /* Graph Region */ ///
+>     graphregion(color(white))
+
+. 
+. 
+. * 3. Output the Graph
+. ******************************************************************************
+> **
+. 
+. graph export "$fig/fig1_education_by_cohort.png", replace width(2000)
+(file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.png not found)
+file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.png saved as PNG format
+
+. graph export "$fig/fig1_education_by_cohort.pdf", replace
+file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.pdf saved as PDF format
+
+. 
+. log close fig1
+      name:  fig1
+       log:  <repo root>/output/logs/02_figure1.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. if "$only" == "" | "$only" == "03" do "$root/code/03_table1.do"
+
+. /*****************************************************************************
+> **
+> Title:   Table 1 Replication for Antman and Cortes (2023)
+> Purpose: Replicate Table 1: means [SD] by HiSeg/LoSeg and cohort, HiSeg-LoSeg
+>          gaps, and the 2x2 difference-in-differences. Hispanic sample,
+>          robust SE (as in the paper's notes).
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close table1
+
+. log using "$log/03_table1.log", replace text name(table1)
+(file <repo root>/output/logs/03_table1.log
+    not found)
+--------------------------------------------------------------------------------
+      name:  table1
+       log:  <repo root>/output/logs/03_table1.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. * Hispanic, HiSeg/LoSeg counties, born 1931-35 or 1941-45
+. keep if hispanic == 1 & sample_tables == 1 & !missing(hiseg)
+(215,920 observations deleted)
+
+. count
+  5,630
+
+. 
+. 
+. * 1. Helper to Store a Table Column
+. ******************************************************************************
+> **
+. 
+. * Table 1 has outcomes as rows, so each column posted as own "model"
+. * with coefs named yrsed jrhigh hschool. Mean columns get V = 0 (no SE, no sta
+> rs)
+. program define post_column, eclass
+  1.     syntax, b(name) v(name) n(integer) [sd(name) dof(integer 0)]
+  2.     if `dof' > 0 {
+  3.         ereturn post `b' `v', obs(`n') dof(`dof')
+  4.     }
+  5.     else {
+  6.         ereturn post `b' `v', obs(`n')
+  7.     }
+  8.     if "`sd'" != "" ereturn matrix sd = `sd'
+  9.     ereturn local cmd "post_column"
+ 10. end
+
+. 
+. local outcomes "yrsed jrhigh hschool"
+
+. 
+. 
+. * 2. Means and SDs by Group
+. ******************************************************************************
+> **
+. 
+. * p = post_mendez, h = hiseg
+. foreach p in 1 0 {
+  2.     foreach h in 1 0 {
+  3.         matrix M = J(1, 3, .)
+  4.         matrix S = J(1, 3, .)
+  5.         matrix V = J(3, 3, 0)
+  6.         local j = 0
+  7.         foreach var in yrsed jrhigh hschool {
+  8.             local ++j
+  9.             summarize `var' if post_mendez == `p' & hiseg == `h'
+ 10.             matrix M[1, `j'] = r(mean)
+ 11.             matrix S[1, `j'] = r(sd)
+ 12.         }
+ 13.         matrix colnames M = `outcomes'
+ 14.         matrix colnames S = `outcomes'
+ 15.         matrix colnames V = `outcomes'
+ 16.         matrix rownames V = `outcomes'
+ 17.         count if post_mendez == `p' & hiseg == `h'
+ 18.         post_column, b(M) v(V) sd(S) n(`r(N)')
+ 19.         eststo mean_p`p'_h`h'
+ 20.     }
+ 21. }
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |      3,217    11.66895    2.890757          0         20
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |      3,217    .9285048    .2576902          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |      3,217    .6689462    .4706655          0          1
+  3,217
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |        143    12.82517    2.587387          0         19
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |        143     .979021    .1438177          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |        143    .8111888    .3927342          0          1
+  143
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |      2,193    10.12905    3.856012          0         20
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |      2,193    .7774738    .4160375          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |      2,193    .4787962    .4996641          0          1
+  2,193
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |         77    12.05195    2.310708          5         19
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |         77     .974026    .1601008          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |         77    .7012987    .4606898          0          1
+  77
+
+. 
+. 
+. * 3. HiSeg - LoSeg Gap Within Cohort
+. ******************************************************************************
+> **
+. 
+. foreach p in 1 0 {
+  2.     matrix B = J(1, 3, .)
+  3.     matrix V = J(3, 3, 0)
+  4.     local j = 0
+  5.     foreach var in yrsed jrhigh hschool {
+  6.         local ++j
+  7.         regress `var' hiseg if post_mendez == `p', robust
+  8.         matrix B[1, `j'] = _b[hiseg]
+  9.         matrix V[`j', `j'] = _se[hiseg]^2
+ 10.         * same N, df for all 3
+.         if `j' == 1 {
+ 11.             local n = e(N)
+ 12.             local df = e(df_r)
+ 13.         }
+ 14.         assert e(N) == `n' & e(df_r) == `df'
+ 15.     }
+ 16.     matrix colnames B = `outcomes'
+ 17.     matrix colnames V = `outcomes'
+ 18.     matrix rownames V = `outcomes'
+ 19.     post_column, b(B) v(V) n(`n') dof(`df')
+ 20.     eststo gap_p`p'
+ 21. }
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      27.22
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0065
+                                                Root MSE          =     2.8786
+
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -1.156229   .2216164    -5.22   0.000    -1.590745   -.7217118
+       _cons |   12.82517   .2156745    59.47   0.000     12.40231    13.24804
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      15.53
+                                                Prob > F          =     0.0001
+                                                R-squared         =     0.0016
+                                                Root MSE          =     .25391
+
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.0505162   .0128204    -3.94   0.000    -.0756527   -.0253796
+       _cons |    .979021   .0119881    81.67   0.000     .9555163    1.002526
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      17.74
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0038
+                                                Root MSE          =     .46763
+
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.1422426   .0337724    -4.21   0.000    -.2084592   -.0760259
+       _cons |   .8111888   .0327368    24.78   0.000     .7470027    .8753749
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      49.11
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0083
+                                                Root MSE          =     3.8144
+
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -1.922901   .2743817    -7.01   0.000    -2.460966   -1.384836
+       _cons |   12.05195   .2617294    46.05   0.000     11.53869     12.5652
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      94.73
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0075
+                                                Root MSE          =     .41006
+
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.1965522   .0201944    -9.73   0.000    -.2361536   -.1569508
+       _cons |    .974026   .0181343    53.71   0.000     .9384644    1.009588
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      17.45
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0065
+                                                Root MSE          =     .49841
+
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.2225025   .0532616    -4.18   0.000    -.3269491    -.118056
+       _cons |   .7012987   .0521814    13.44   0.000     .5989703    .8036271
+------------------------------------------------------------------------------
+
+. 
+. 
+. * 4. Difference-in-Differences
+. ******************************************************************************
+> **
+. 
+. matrix B = J(1, 3, .)
+
+. matrix V = J(3, 3, 0)
+
+. local j = 0
+
+. foreach var in yrsed jrhigh hschool {
+  2.     local ++j
+  3.     regress `var' c.hiseg##c.post_mendez, robust
+  4.     matrix B[1, `j'] = _b[c.hiseg#c.post_mendez]
+  5.     matrix V[`j', `j'] = _se[c.hiseg#c.post_mendez]^2
+  6.     if `j' == 1 {
+  7.         local n = e(N)
+  8.         local df = e(df_r)
+  9.     }
+ 10.     assert e(N) == `n' & e(df_r) == `df'
+ 11. }
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =     104.17
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0559
+                                                Root MSE          =      3.288
+
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -1.922901   .2743583    -7.01   0.000    -2.460749   -1.385053
+  post_mendez |   .7732268   .3391334     2.28   0.023     .1083945    1.438059
+              |
+      c.hiseg#|
+c.post_mendez |   .7666725   .3526924     2.17   0.030     .0752592    1.458086
+              |
+        _cons |   12.05195   .2617071    46.05   0.000      11.5389    12.56499
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      94.83
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0513
+                                                Root MSE          =     .32598
+
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.1965522   .0201927    -9.73   0.000    -.2361376   -.1569668
+  post_mendez |    .004995   .0217377     0.23   0.818    -.0376193    .0476093
+              |
+      c.hiseg#|
+c.post_mendez |    .146036   .0239191     6.11   0.000     .0991453    .1929268
+              |
+        _cons |    .974026   .0181328    53.72   0.000     .9384788    1.009573
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      80.73
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0404
+                                                Root MSE          =     .48028
+
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.2225025   .0532571    -4.18   0.000    -.3269069   -.1180982
+  post_mendez |   .1098901   .0615976     1.78   0.074    -.0108649    .2306451
+              |
+      c.hiseg#|
+c.post_mendez |   .0802599   .0630636     1.27   0.203    -.0433691     .203889
+              |
+        _cons |   .7012987    .052177    13.44   0.000     .5990117    .8035857
+-------------------------------------------------------------------------------
+
+. matrix colnames B = `outcomes'
+
+. matrix colnames V = `outcomes'
+
+. matrix rownames V = `outcomes'
+
+. post_column, b(B) v(V) n(`n') dof(`df')
+
+. eststo did
+
+. 
+. 
+. * 5. Export
+. ******************************************************************************
+> **
+. 
+. * Column order follows paper: 1941-45 High, Low, gap; 1931-35 High, Low, gap; 
+> DiD
+. local models "mean_p1_h1 mean_p1_h0 gap_p1 mean_p0_h1 mean_p0_h0 gap_p0 did"
+
+. 
+. * SD in brackets under means, SE in parens under gaps & DiD
+. local cells `"cells("b(fmt(3) star)" "sd(fmt(3) par([ ])) & se(fmt(3) par patt
+> ern(0 0 1 0 0 1 1))")"'
+
+. 
+. local rows `"coeflabels(yrsed "Years of Education" jrhigh "Jr. High (8+ years 
+> of education)" hschool "High School (12+ years of education)")"'
+
+. 
+. * Log copy
+. esttab `models', `cells' star(* 0.10 ** 0.05 *** 0.01) ///
+>     mtitles("Hi 41-45" "Lo 41-45" "Gap 41-45" "Hi 31-35" "Lo 31-35" "Gap 31-35
+> " "DiD") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc)) modelwidth(11)
+
+--------------------------------------------------------------------------------
+> -------------------------------------
+                Hi 41-45       Lo 41-45      Gap 41-45       Hi 31-35       Lo 3
+> 1-35      Gap 31-35            DiD   
+--------------------------------------------------------------------------------
+> -------------------------------------
+yrsed             11.669         12.825         -1.156***      10.129         12
+> .052         -1.923***       0.767** 
+                [2.891]        [2.587]         (0.222)       [3.856]        [2.3
+> 11]         (0.274)        (0.353)   
+jrhigh             0.929          0.979         -0.051***       0.777          0
+> .974         -0.197***       0.146***
+                [0.258]        [0.144]         (0.013)       [0.416]        [0.1
+> 60]         (0.020)        (0.024)   
+hschool            0.669          0.811         -0.142***       0.479          0
+> .701         -0.223***       0.080   
+                [0.471]        [0.393]         (0.034)       [0.500]        [0.4
+> 61]         (0.053)        (0.063)   
+--------------------------------------------------------------------------------
+> -------------------------------------
+N                  3,217            143          3,360          2,193           
+>   77          2,270          5,630   
+--------------------------------------------------------------------------------
+> -------------------------------------
+
+. 
+. * LaTeX fragment (stars need \sym defined in paper preamble)
+. * Long headers split over two lines so table fits the page
+. esttab `models' using "$tab/table1_summary.tex", replace booktabs fragment ///
+>     `cells' star(* 0.10 ** 0.05 *** 0.01) `rows' ///
+>     mgroups("\begin{tabular}{c}Panel A. Treatment group\tabularnewline 1941--4
+> 5 birth cohorts (ages 2--6)\end{tabular}" ///
+>         "\begin{tabular}{c}Panel B. Comparison group\tabularnewline 1931--35 b
+> irth cohorts (ages 12--16)\end{tabular}" "", ///
+>         pattern(1 0 0 1 0 0 1) prefix(\multicolumn{@span}{c}{) suffix(}) span 
+> ///
+>         erepeat(\cmidrule(lr){@span})) ///
+>     mtitles("High" "Low" "\ensuremath{\Delta^{\mathrm{treatment}}}" ///
+>         "High" "Low" "\ensuremath{\Delta^{\mathrm{comparison}}}" ///
+>         "\begin{tabular}{c}\ensuremath{\Delta^{\mathrm{treatment}}}\tabularnew
+> line \ensuremath{-\,\Delta^{\mathrm{comparison}}}\end{tabular}") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc) labels("Number of observati
+> ons")) ///
+>     nonotes
+(file <repo root>/output/tables/table1_summar
+    > y.tex not found)
+(output written to <repo root>/output/tables/table1_summary.tex)
+
+. 
+. * CSV twin
+. esttab `models' using "$tab/table1_summary.csv", replace ///
+>     `cells' star(* 0.10 ** 0.05 *** 0.01) `rows' ///
+>     mtitles("High 1941-45" "Low 1941-45" "Gap 1941-45" "High 1931-35" "Low 193
+> 1-35" "Gap 1931-35" "DiD") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc) labels("Number of observati
+> ons")) ///
+>     nonotes
+(file <repo root>/output/tables/table1_summar
+    > y.csv not found)
+(output written to <repo root>/output/tables/table1_summary.csv)
+
+. 
+. log close table1
+      name:  table1
+       log:  <repo root>/output/logs/03_table1.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. if "$only" == "" | "$only" == "04" do "$root/code/04_table2.do"
+
+. /*****************************************************************************
+> **
+> Title:   Table 2 Replication for Antman and Cortes (2023)
+> Purpose: Replicate Table 2, eq. (1) with county and birth-year FE.
+>          Panel A: Hispanic, born 1941-45 vs 1931-35
+>          Panel B: Hispanic placebo, born 1926-30 vs 1921-25
+>          Panel C: non-Hispanic white, born 1941-45 vs 1931-35
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close table2
+
+. log using "$log/04_table2.log", replace text name(table2)
+(file <repo root>/output/logs/04_table2.log
+    not found)
+--------------------------------------------------------------------------------
+      name:  table2
+       log:  <repo root>/output/logs/04_table2.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. 
+. * 1. Panel Definitions
+. ******************************************************************************
+> **
+. 
+. * Sample, post variable, coefficient label for each panel
+. local if_A   "hispanic == 1 & sample_tables == 1 & !missing(hiseg)"
+
+. local post_A "post_mendez"
+
+. local lab_A  "High segregation \ensuremath{\times} post-Mendez cohort"
+
+. local csv_A  "High segregation x post-Mendez cohort"
+
+. 
+. local if_B   "hispanic == 1 & sample_placebo == 1 & !missing(hiseg)"
+
+. local post_B "placebo_post"
+
+. local lab_B  "High segregation \ensuremath{\times} placebo post-Mendez cohort"
+
+. local csv_B  "High segregation x placebo post-Mendez cohort"
+
+. 
+. local if_C   "nhwhite == 1 & sample_tables == 1 & !missing(hiseg)"
+
+. local post_C "post_mendez"
+
+. local lab_C  "High segregation \ensuremath{\times} post-Mendez cohort"
+
+. local csv_C  "High segregation x post-Mendez cohort"
+
+. 
+. 
+. * 2. Regressions and Export
+. ******************************************************************************
+> **
+. 
+. foreach panel in A B C {
+  2. 
+.     eststo clear
+  3.     local post "`post_`panel''"
+  4. 
+.     foreach var in yrsed jrhigh hschool {
+  5.         * Eq (1): DiD term + controls, county and birth-year FE, clustered 
+> by county
+.         regress `var' c.hiseg#c.`post' female census1990 census2000 ///
+>             i.countyfip i.birthyr if `if_`panel'', vce(cluster countyfip)
+  6.         estadd ysumm
+  7.         estadd local fe_birth "Yes"
+  8.         estadd local fe_county "Yes"
+  9.         eststo `var'_`panel'
+ 10.     }
+ 11. 
+.     local models "yrsed_`panel' jrhigh_`panel' hschool_`panel'"
+ 12. 
+.     * Log copy
+.     esttab `models', keep(c.hiseg#c.`post') b(3) se(3) star(* 0.10 ** 0.05 ***
+>  0.01) ///
+>         stats(ymean N r2, fmt(3 %9.0fc 3)) mtitles("Years of ed" "Jr high" "Hi
+> gh school")
+ 13. 
+. * LaTeX fragment (stars need \sym defined in paper preamble)
+.     esttab `models' using "$tab/table2_panel`panel'.tex", replace booktabs fra
+> gment ///
+>         keep(c.hiseg#c.`post') coeflabels(c.hiseg#c.`post' "`lab_`panel''") //
+> /
+>         b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+>         mtitles("Years of education" "Jr. High School" "High School") ///
+>         stats(ymean N r2 fe_birth fe_county, fmt(3 %9.0fc 3 0 0) ///
+>             labels("Mean (y-variable)" "Number of observations" "R\textsupersc
+> ript{2}" ///
+>             "Birth cohort fixed effects" "County fixed effects")) ///
+>         nonotes
+ 14. 
+.     * CSV twin
+.     esttab `models' using "$tab/table2_panel`panel'.csv", replace ///
+>         keep(c.hiseg#c.`post') coeflabels(c.hiseg#c.`post' "`csv_`panel''") //
+> /
+>         b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+>         mtitles("Years of education" "Jr. High School" "High School") ///
+>         stats(ymean N r2 fe_birth fe_county, fmt(3 %9.0fc 3 0 0) ///
+>             labels("Mean (y-variable)" "Number of observations" "R-squared" //
+> /
+>             "Birth cohort fixed effects" "County fixed effects")) ///
+>         nonotes
+ 15. }
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1073
+                                                Root MSE          =     3.2051
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .9128454   .3518344     2.59   0.019     .1705397    1.655151
+              |
+       female |  -.7157995   .0498504   -14.36   0.000    -.8209746   -.6106244
+   census1990 |  -.1586804   .1115081    -1.42   0.173    -.3939418    .0765811
+   census2000 |  -.4642654   .0458803   -10.12   0.000    -.5610644   -.3674663
+              |
+    countyfip |
+          17  |   .7802259   .0328914    23.72   0.000     .7108311    .8496207
+          19  |   -1.84255   .2114874    -8.71   0.000    -2.288749   -1.396351
+          23  |   .6267831    .025534    24.55   0.000      .572911    .6806551
+          25  |  -2.840832   .2002766   -14.18   0.000    -3.263379   -2.418286
+          31  |  -3.026547   .2086242   -14.51   0.000    -3.466705   -2.586388
+          39  |  -1.824246   .2183727    -8.35   0.000    -2.284972   -1.363519
+          47  |  -1.950071   .2163367    -9.01   0.000    -2.406501    -1.49364
+          53  |  -1.538592   .2231008    -6.90   0.000    -2.009293    -1.06789
+          59  |  -.6851053   .2112255    -3.24   0.005    -1.130752   -.2394585
+          65  |  -1.620782   .2107175    -7.69   0.000    -2.065357   -1.176207
+          71  |  -1.164513    .214606    -5.43   0.000    -1.617292   -.7117337
+          83  |   -.695107   .2110398    -3.29   0.004    -1.140362    -.249852
+          89  |   .5497779   .0534124    10.29   0.000     .4370877    .6624682
+          97  |   .9419265   .0297837    31.63   0.000     .8790884    1.004765
+         107  |  -2.344629   .2174363   -10.78   0.000    -2.803379   -1.885878
+         111  |  -1.193401   .2129548    -5.60   0.000    -1.642697   -.7441061
+         113  |  -.5857353   .1996143    -2.93   0.009    -1.006885   -.1645859
+              |
+      birthyr |
+        1932  |  -.0113976    .261975    -0.04   0.966    -.5641166    .5413213
+        1933  |   .2985554   .1907524     1.57   0.136    -.1038969    .7010078
+        1934  |    .630502   .1036112     6.09   0.000     .4119015    .8491025
+        1935  |   .8403785   .2708859     3.10   0.006     .2688593    1.411898
+        1941  |   .8311845     .34336     2.42   0.027     .1067583    1.555611
+        1942  |   .8802409   .3320609     2.65   0.017     .1796536    1.580828
+        1943  |   .9757479   .3509809     2.78   0.013      .235243    1.716253
+        1944  |   1.039522   .3076112     3.38   0.004     .3905192    1.688525
+        1945  |    1.09778   .3366277     3.26   0.005     .3875577    1.808002
+              |
+        _cons |   11.68901   .2144309    54.51   0.000      11.2366    12.14142
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  3.3831383
+               e(ymax) =  20
+               e(ymin) =  0
+              e(ymean) =  11.10373
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1026
+                                                Root MSE          =     .31781
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .1530534   .0354538     4.32   0.000     .0782523    .2278544
+              |
+       female |  -.0298221   .0070288    -4.24   0.001    -.0446517   -.0149926
+   census1990 |  -.0519573   .0123931    -4.19   0.001    -.0781045   -.0258101
+   census2000 |  -.0818289   .0117769    -6.95   0.000     -.106676   -.0569818
+              |
+    countyfip |
+          17  |    .078354   .0039421    19.88   0.000     .0700368    .0866711
+          19  |  -.2252894   .0216647   -10.40   0.000     -.270998   -.1795809
+          23  |   .0621992   .0030116    20.65   0.000     .0558453     .068553
+          25  |  -.3493443   .0182283   -19.16   0.000    -.3878027   -.3108858
+          31  |  -.3542142   .0193345   -18.32   0.000    -.3950065   -.3134219
+          39  |  -.2526306   .0222855   -11.34   0.000    -.2996489   -.2056123
+          47  |  -.2105919   .0222079    -9.48   0.000    -.2574466   -.1637373
+          53  |  -.2192022   .0245831    -8.92   0.000     -.271068   -.1673364
+          59  |  -.1225439   .0215893    -5.68   0.000    -.1680934   -.0769944
+          65  |  -.1883786   .0201273    -9.36   0.000    -.2308434   -.1459137
+          71  |  -.1390368   .0222174    -6.26   0.000    -.1859115   -.0921621
+          83  |  -.1106018   .0214321    -5.16   0.000    -.1558196   -.0653841
+          89  |   .0285123   .0038867     7.34   0.000     .0203121    .0367125
+          97  |   .0224583   .0037464     5.99   0.000      .014554    .0303626
+         107  |  -.2674766   .0225718   -11.85   0.000     -.315099   -.2198542
+         111  |  -.1567073    .022061    -7.10   0.000    -.2032518   -.1101627
+         113  |  -.0938329    .020057    -4.68   0.000    -.1361494   -.0515163
+              |
+      birthyr |
+        1932  |   .0244292    .019629     1.24   0.230    -.0169845    .0658428
+        1933  |   .0408802   .0127568     3.20   0.005     .0139658    .0677946
+        1934  |   .0449135   .0144866     3.10   0.006     .0143494    .0754775
+        1935  |   .0886724   .0237649     3.73   0.002     .0385328     .138812
+        1941  |   .0230376    .030607     0.75   0.462    -.0415374    .0876126
+        1942  |    .028277   .0295479     0.96   0.352    -.0340637    .0906177
+        1943  |   .0473957   .0265358     1.79   0.092    -.0085898    .1033813
+        1944  |   .0443176   .0271777     1.63   0.121    -.0130223    .1016574
+        1945  |   .0328279   .0281844     1.16   0.260     -.026636    .0922919
+              |
+        _cons |   .9713446   .0226321    42.92   0.000     .9235951    1.019094
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .33458568
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .87158082
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0688
+                                                Root MSE          =     .47425
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .0897661   .0441831     2.03   0.058    -.0034522    .1829843
+              |
+       female |  -.0783407   .0068082   -11.51   0.000    -.0927047   -.0639768
+   census1990 |   .0068123   .0194488     0.35   0.730    -.0342211    .0478458
+   census2000 |  -.0177415   .0120858    -1.47   0.160    -.0432403    .0077572
+              |
+    countyfip |
+          17  |   .1565788   .0078951    19.83   0.000     .1399215     .173236
+          19  |  -.2348304   .0268987    -8.73   0.000    -.2915816   -.1780792
+          23  |  -.0355487   .0040924    -8.69   0.000    -.0441828   -.0269145
+          25  |  -.2663568   .0275824    -9.66   0.000    -.3245505    -.208163
+          31  |  -.3280361   .0284104   -11.55   0.000    -.3879768   -.2680954
+          39  |  -.1758804   .0288507    -6.10   0.000      -.23675   -.1150108
+          47  |  -.1782055    .027852    -6.40   0.000    -.2369681   -.1194429
+          53  |  -.1579638   .0276692    -5.71   0.000    -.2163407   -.0995869
+          59  |  -.0918187   .0269865    -3.40   0.003    -.1487553   -.0348822
+          65  |  -.2246759   .0286992    -7.83   0.000     -.285226   -.1641259
+          71  |  -.1692607   .0272624    -6.21   0.000    -.2267792   -.1117421
+          83  |  -.0958771   .0270401    -3.55   0.002    -.1529267   -.0388276
+          89  |   .0909539   .0075491    12.05   0.000     .0750266    .1068811
+          97  |   .0709331   .0048085    14.75   0.000     .0607879    .0810782
+         107  |  -.2824578   .0272997   -10.35   0.000    -.3400551   -.2248605
+         111  |  -.1212704   .0271804    -4.46   0.000    -.1786161   -.0639248
+         113  |  -.0256946   .0258879    -0.99   0.335    -.0803132     .028924
+              |
+      birthyr |
+        1932  |  -.0294301   .0371826    -0.79   0.440    -.1078784    .0490183
+        1933  |    .052966   .0310046     1.71   0.106     -.012448      .11838
+        1934  |   .0500165   .0186296     2.68   0.016     .0107115    .0893216
+        1935  |   .0475969   .0261019     1.82   0.086    -.0074733    .1026672
+        1941  |   .0986052   .0446167     2.21   0.041     .0044721    .1927382
+        1942  |   .1047514   .0501902     2.09   0.052    -.0011407    .2106434
+        1943  |   .1032289   .0501923     2.06   0.055    -.0026677    .2091255
+        1944  |   .1560825   .0468736     3.33   0.004     .0571878    .2549772
+        1945  |   .1525286   .0452954     3.37   0.004     .0569637    .2480935
+              |
+        _cons |    .663598   .0291414    22.77   0.000     .6021151     .725081
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .49015781
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .59893428
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+------------------------------------------------------------
+                      (1)             (2)             (3)   
+              Years of ed         Jr high     High school   
+------------------------------------------------------------
+c.hiseg#c.~z        0.913**         0.153***        0.090*  
+                  (0.352)         (0.035)         (0.044)   
+------------------------------------------------------------
+ymean              11.104           0.872           0.599   
+N                   5,630           5,630           5,630   
+r2                  0.107           0.103           0.069   
+------------------------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+(file <repo root>/output/tables/table2_panelA
+    > .tex not found)
+(output written to <repo root>/output/tables/table2_panelA.tex)
+(file <repo root>/output/tables/table2_panelA
+    > .csv not found)
+(output written to <repo root>/output/tables/table2_panelA.csv)
+
+Linear regression                               Number of obs     =      3,498
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0869
+                                                Root MSE          =     3.9071
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     c.hiseg#|
+          c. |
+placebo_post |  -.4140853   .4208585    -0.98   0.339    -1.302019    .4738486
+             |
+      female |  -.4303538   .0987564    -4.36   0.000    -.6387116   -.2219959
+  census1990 |  -.6469249   .1882322    -3.44   0.003     -1.04406   -.2497896
+  census2000 |  -.4083629   .1907495    -2.14   0.047    -.8108092   -.0059166
+             |
+   countyfip |
+         17  |  -.4319978   .2061957    -2.10   0.051    -.8670326    .0030371
+         19  |  -4.109373   .2231681   -18.41   0.000    -4.580216   -3.638529
+         23  |  -.8035352   .1456055    -5.52   0.000    -1.110736   -.4963345
+         25  |   -5.76555   .2231825   -25.83   0.000    -6.236424   -5.294676
+         31  |  -4.967067   .2165768   -22.93   0.000    -5.424004    -4.51013
+         39  |  -3.198027   .2693112   -11.87   0.000    -3.766224    -2.62983
+         47  |  -4.033713   .2285707   -17.65   0.000    -4.515956   -3.551471
+         53  |  -3.952204   .2184877   -18.09   0.000    -4.413172   -3.491235
+         59  |  -2.295825   .2234413   -10.27   0.000    -2.767245   -1.824405
+         65  |  -3.138817   .2223174   -14.12   0.000    -3.607866   -2.669768
+         71  |  -2.500169   .2215581   -11.28   0.000    -2.967616   -2.032723
+         83  |  -1.948979   .2225349    -8.76   0.000    -2.418486   -1.479471
+         89  |  -.1934088   .0783201    -2.47   0.024    -.3586496   -.0281679
+         97  |  -.2400944   .0478739    -5.02   0.000    -.3410995   -.1390893
+        107  |  -4.517887   .2205543   -20.48   0.000    -4.983216   -4.052559
+        111  |  -3.270556   .2234187   -14.64   0.000    -3.741929   -2.799184
+        113  |  -2.915468   .2169169   -13.44   0.000    -3.373123   -2.457813
+             |
+     birthyr |
+       1922  |   .2593185   .3429954     0.76   0.460    -.4643387    .9829756
+       1923  |  -.0222469   .3802303    -0.06   0.954    -.8244626    .7799688
+       1924  |   .6538011   .3782337     1.73   0.102    -.1442023    1.451804
+       1925  |   .3646619   .3228282     1.13   0.274     -.316446     1.04577
+       1926  |   1.050763   .5423923     1.94   0.070    -.0935842    2.195111
+       1927  |    .765907   .4788127     1.60   0.128    -.2442994    1.776114
+       1928  |   .8328396   .5087964     1.64   0.120     -.240627    1.906306
+       1929  |   .9738855   .4667899     2.09   0.052    -.0109551    1.958726
+       1930  |   1.339787   .5194852     2.58   0.020     .2437687    2.435804
+             |
+       _cons |   12.22246   .3932828    31.08   0.000     11.39271    13.05222
+------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  4.0713125
+               e(ymax) =  20
+               e(ymin) =  0
+              e(ymean) =  9.042024
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =      3,498
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0911
+                                                Root MSE          =     .44625
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     c.hiseg#|
+          c. |
+placebo_post |  -.0070952   .0627358    -0.11   0.911    -.1394561    .1252658
+             |
+      female |  -.0409483   .0159454    -2.57   0.020    -.0745901   -.0073065
+  census1990 |  -.1236755   .0212682    -5.82   0.000    -.1685475   -.0788034
+  census2000 |  -.1224231   .0179414    -6.82   0.000     -.160276   -.0845701
+             |
+   countyfip |
+         17  |  -.1028387   .0252935    -4.07   0.001    -.1562033   -.0494741
+         19  |  -.4368902   .0335494   -13.02   0.000    -.5076733    -.366107
+         23  |  -.0054779   .0157091    -0.35   0.732    -.0386212    .0276654
+         25  |   -.599744   .0343695   -17.45   0.000    -.6722573   -.5272308
+         31  |  -.5192751   .0345305   -15.04   0.000     -.592128   -.4464222
+         39  |  -.5256423   .0352955   -14.89   0.000    -.6001093   -.4511754
+         47  |  -.4470656   .0338938   -13.19   0.000    -.5185752    -.375556
+         53  |  -.3998938   .0335173   -11.93   0.000    -.4706093   -.3291784
+         59  |  -.2376166   .0335955    -7.07   0.000    -.3084969   -.1667362
+         65  |  -.3051588   .0339808    -8.98   0.000    -.3768521   -.2334655
+         71  |  -.2474699    .033235    -7.45   0.000    -.3175897   -.1773502
+         83  |  -.1965282   .0332951    -5.90   0.000    -.2667747   -.1262816
+         89  |   .0204028   .0098638     2.07   0.054     -.000408    .0412135
+         97  |  -.0797752   .0072723   -10.97   0.000    -.0951184   -.0644321
+        107  |  -.5026171   .0333064   -15.09   0.000    -.5728874   -.4323468
+        111  |  -.3493569   .0337073   -10.36   0.000    -.4204732   -.2782406
+        113  |  -.3165906   .0334152    -9.47   0.000    -.3870904   -.2460907
+             |
+     birthyr |
+       1922  |   .0115743   .0412311     0.28   0.782    -.0754156    .0985643
+       1923  |  -.0027898   .0426553    -0.07   0.949    -.0927846     .087205
+       1924  |   .0826128   .0389771     2.12   0.049     .0003782    .1648474
+       1925  |   .0266426   .0454257     0.59   0.565    -.0691973    .1224825
+       1926  |   .0495647   .0770845     0.64   0.529    -.1130694    .2121987
+       1927  |   .0485426   .0723156     0.67   0.511      -.10403    .2011152
+       1928  |   .0592966   .0660764     0.90   0.382    -.0801125    .1987057
+       1929  |   .0610852   .0656557     0.93   0.365    -.0774362    .1996066
+       1930  |   .1054251   .0725261     1.45   0.164    -.0475917    .2584419
+             |
+       _cons |   1.058124   .0515504    20.53   0.000     .9493618    1.166886
+------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .4660599
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .68124643
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =      3,498
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0452
+                                                Root MSE          =     .46811
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     c.hiseg#|
+          c. |
+placebo_post |  -.1326891   .0685297    -1.94   0.070    -.2772741    .0118959
+             |
+      female |  -.0482843   .0138379    -3.49   0.003    -.0774797   -.0190889
+  census1990 |   -.024514   .0152906    -1.60   0.127    -.0567744    .0077464
+  census2000 |   .0225586   .0160576     1.40   0.178      -.01132    .0564373
+             |
+   countyfip |
+         17  |  -.1715886   .0289379    -5.93   0.000    -.2326423    -.110535
+         19  |  -.3740633   .0359894   -10.39   0.000    -.4499943   -.2981324
+         23  |   -.209466   .0123875   -16.91   0.000    -.2356013   -.1833307
+         25  |  -.4331532   .0359736   -12.04   0.000    -.5090508   -.3572556
+         31  |  -.4475991   .0357075   -12.54   0.000    -.5229354   -.3722628
+         39  |   -.330827   .0369432    -8.96   0.000    -.4087702   -.2528837
+         47  |  -.3618351   .0361517   -10.01   0.000    -.4381085   -.2855618
+         53  |   -.310717   .0366171    -8.49   0.000    -.3879723   -.2334618
+         59  |  -.2223289   .0363256    -6.12   0.000    -.2989691   -.1456887
+         65  |  -.3415841   .0355391    -9.61   0.000    -.4165651   -.2666032
+         71  |  -.2595646   .0358658    -7.24   0.000    -.3352349   -.1838943
+         83  |  -.2532603   .0359205    -7.05   0.000    -.3290461   -.1774746
+         89  |  -.0400671   .0081191    -4.93   0.000    -.0571969   -.0229374
+         97  |  -.0265774   .0087091    -3.05   0.007    -.0449521   -.0082027
+        107  |  -.4307514   .0358141   -12.03   0.000    -.5063125   -.3551904
+        111  |  -.3164844   .0359226    -8.81   0.000    -.3922745   -.2406942
+        113  |  -.1860979   .0358268    -5.19   0.000    -.2616858   -.1105099
+             |
+     birthyr |
+       1922  |   .0334249   .0466574     0.72   0.483    -.0650136    .1318633
+       1923  |   .0221545   .0406665     0.54   0.593    -.0636444    .1079534
+       1924  |   .0758279   .0494632     1.53   0.144    -.0285303     .180186
+       1925  |   .0471139   .0407336     1.16   0.263    -.0388264    .1330543
+       1926  |   .1957789   .0771988     2.54   0.021     .0329036    .3586543
+       1927  |   .1757743   .0778322     2.26   0.037     .0115628    .3399859
+       1928  |   .2051274   .0761752     2.69   0.015     .0444118    .3658431
+       1929  |    .257383   .0777387     3.31   0.004     .0933687    .4213973
+       1930  |   .2478093   .0851916     2.91   0.010     .0680708    .4275478
+             |
+       _cons |    .605037   .0463462    13.05   0.000      .507255     .702819
+------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .47701081
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .34991424
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+------------------------------------------------------------
+                      (1)             (2)             (3)   
+              Years of ed         Jr high     High school   
+------------------------------------------------------------
+c.hiseg#c.~t       -0.414          -0.007          -0.133*  
+                  (0.421)         (0.063)         (0.069)   
+------------------------------------------------------------
+ymean               9.042           0.681           0.350   
+N                   3,498           3,498           3,498   
+r2                  0.087           0.091           0.045   
+------------------------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+(file <repo root>/output/tables/table2_panelB
+    > .tex not found)
+(output written to <repo root>/output/tables/table2_panelB.tex)
+(file <repo root>/output/tables/table2_panelB
+    > .csv not found)
+(output written to <repo root>/output/tables/table2_panelB.csv)
+
+Linear regression                               Number of obs     =     26,884
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0556
+                                                Root MSE          =     2.5544
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |  -.3912485    .079534    -4.92   0.000    -.5590507   -.2234463
+              |
+       female |  -.6808486   .1082978    -6.29   0.000     -.909337   -.4523603
+   census1990 |   .0381032   .0445061     0.86   0.404    -.0557964    .1320028
+   census2000 |   .1202903   .0458334     2.62   0.018     .0235903    .2169902
+              |
+    countyfip |
+          17  |   .3323364   .0132053    25.17   0.000     .3044756    .3601971
+          19  |   .3582219    .052238     6.86   0.000     .2480093    .4684344
+          23  |   .0963298   .0020838    46.23   0.000     .0919334    .1007262
+          25  |   .1258679   .0517853     2.43   0.026     .0166106    .2351253
+          31  |   -.361547   .0507627    -7.12   0.000     -.468647    -.254447
+          39  |  -.1380856   .0555282    -2.49   0.024    -.2552398   -.0209315
+          47  |  -.2304991   .0519083    -4.44   0.000    -.3400161   -.1209821
+          53  |   .8679052   .0556153    15.61   0.000     .7505672    .9852432
+          59  |   1.087905   .0531149    20.48   0.000      .975842    1.199967
+          65  |   .1201708   .0505255     2.38   0.029     .0135714    .2267702
+          71  |  -.0458082    .052583    -0.87   0.396    -.1567486    .0651322
+          83  |   1.134305   .0525717    21.58   0.000     1.023388    1.245221
+          89  |  -.2351755   .0041288   -56.96   0.000    -.2438865   -.2264644
+          97  |   .2794775   .0032819    85.16   0.000     .2725533    .2864016
+         107  |  -.2592556   .0524575    -4.94   0.000    -.3699313   -.1485798
+         111  |   .7931423   .0531957    14.91   0.000     .6809092    .9053753
+         113  |   .6254776   .0526021    11.89   0.000     .5144968    .7364584
+              |
+      birthyr |
+        1932  |   .1150975   .1249934     0.92   0.370    -.1486155    .3788106
+        1933  |   .1038464    .074859     1.39   0.183    -.0540923    .2617851
+        1934  |   .0082821    .063513     0.13   0.898    -.1257187    .1422829
+        1935  |   .2001105   .1142006     1.75   0.098    -.0408318    .4410528
+        1941  |   .5668314   .1015642     5.58   0.000     .3525496    .7811133
+        1942  |   .7076464   .0944687     7.49   0.000     .5083347     .906958
+        1943  |   .7299123   .1051964     6.94   0.000     .5079674    .9518573
+        1944  |   .8338869   .0993752     8.39   0.000     .6242236     1.04355
+        1945  |   .8725342   .1121718     7.78   0.000     .6358725    1.109196
+              |
+        _cons |   12.97827   .1167443   111.17   0.000     12.73196    13.22458
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  2.6270707
+               e(ymax) =  20
+               e(ymin) =  0
+              e(ymean) =  13.474148
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =     26,884
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0077
+                                                Root MSE          =     .11903
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |  -.0094756   .0040942    -2.31   0.033    -.0181136   -.0008377
+              |
+       female |   .0038815   .0012451     3.12   0.006     .0012546    .0065084
+   census1990 |  -.0037184   .0013692    -2.72   0.015    -.0066071   -.0008296
+   census2000 |  -.0025127   .0019086    -1.32   0.205    -.0065395    .0015142
+              |
+    countyfip |
+          17  |   .0055584    .000445    12.49   0.000     .0046196    .0064972
+          19  |    .001497   .0027028     0.55   0.587    -.0042053    .0071994
+          23  |   .0010342   .0001941     5.33   0.000     .0006247    .0014437
+          25  |   .0113482   .0028623     3.96   0.001     .0053092    .0173871
+          31  |  -.0005906   .0026577    -0.22   0.827    -.0061979    .0050168
+          39  |  -.0131898   .0031116    -4.24   0.001    -.0197546    -.006625
+          47  |  -.0123311   .0027032    -4.56   0.000    -.0180344   -.0066278
+          53  |   .0101821   .0027293     3.73   0.002     .0044238    .0159405
+          59  |   .0166718   .0027801     6.00   0.000     .0108062    .0225374
+          65  |   .0041199   .0026061     1.58   0.132    -.0013784    .0096182
+          71  |    .003529   .0027621     1.28   0.219    -.0022985    .0093564
+          83  |    .015151   .0027821     5.45   0.000     .0092814    .0210207
+          89  |   .0039892   .0001526    26.15   0.000     .0036673    .0043111
+          97  |  -.0031435   .0000777   -40.46   0.000    -.0033075   -.0029796
+         107  |  -.0167332   .0027389    -6.11   0.000    -.0225118   -.0109547
+         111  |    .013197   .0028573     4.62   0.000     .0071685    .0192254
+         113  |   .0150673   .0027227     5.53   0.000      .009323    .0208117
+              |
+      birthyr |
+        1932  |   .0062838   .0072099     0.87   0.396    -.0089277    .0214953
+        1933  |   .0035596   .0052019     0.68   0.503    -.0074154    .0145346
+        1934  |   .0018817   .0058634     0.32   0.752     -.010489    .0142523
+        1935  |   .0074258   .0058897     1.26   0.224    -.0050004    .0198519
+        1941  |   .0159695   .0060484     2.64   0.017     .0032086    .0287304
+        1942  |   .0218089   .0049694     4.39   0.000     .0113244    .0322935
+        1943  |   .0183774   .0054021     3.40   0.003       .00698    .0297748
+        1944  |   .0224414   .0061406     3.65   0.002     .0094858     .035397
+        1945  |   .0199921   .0046135     4.33   0.000     .0102585    .0297258
+              |
+        _cons |   .9698566   .0045206   214.54   0.000      .960319    .9793942
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .11941832
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .98553043
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+Linear regression                               Number of obs     =     26,884
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0187
+                                                Root MSE          =     .30391
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |    -.02618    .010399    -2.52   0.022    -.0481201   -.0042399
+              |
+       female |  -.0118348   .0024275    -4.88   0.000    -.0169564   -.0067131
+   census1990 |   .0054504   .0051322     1.06   0.303    -.0053776    .0162784
+   census2000 |   .0188571   .0052371     3.60   0.002     .0078078    .0299063
+              |
+    countyfip |
+          17  |   .0147109   .0016237     9.06   0.000     .0112852    .0181366
+          19  |   .0119184     .00687     1.73   0.101     -.002576    .0264128
+          23  |  -.0050231   .0003821   -13.14   0.000    -.0058293   -.0042168
+          25  |  -.0108175   .0063136    -1.71   0.105    -.0241379     .002503
+          31  |  -.0640924   .0061831   -10.37   0.000    -.0771376   -.0510472
+          39  |  -.0622771   .0073323    -8.49   0.000    -.0777469   -.0468073
+          47  |  -.0619742   .0067756    -9.15   0.000    -.0762695   -.0476789
+          53  |   .0308323   .0074857     4.12   0.001     .0150388    .0466257
+          59  |   .0666859   .0070413     9.47   0.000       .05183    .0815417
+          65  |   .0056349   .0062053     0.91   0.377    -.0074572    .0187271
+          71  |  -.0166082   .0069143    -2.40   0.028    -.0311961   -.0020203
+          83  |   .0713672   .0068372    10.44   0.000     .0569419    .0857925
+          89  |   -.013103   .0003472   -37.74   0.000    -.0138354   -.0123706
+          97  |   .0157877   .0002268    69.60   0.000     .0153091    .0162662
+         107  |  -.0387734   .0069456    -5.58   0.000    -.0534273   -.0241196
+         111  |    .049427   .0069361     7.13   0.000     .0347931    .0640608
+         113  |   .0172014   .0069685     2.47   0.024     .0024991    .0319038
+              |
+      birthyr |
+        1932  |   .0179669   .0153874     1.17   0.259    -.0144977    .0504316
+        1933  |   .0074811   .0084382     0.89   0.388    -.0103218    .0252841
+        1934  |  -.0000711   .0067232    -0.01   0.992    -.0142559    .0141136
+        1935  |   .0167232   .0141787     1.18   0.254    -.0131912    .0466377
+        1941  |   .0541184   .0101791     5.32   0.000     .0326424    .0755944
+        1942  |   .0593689   .0096928     6.13   0.000     .0389189    .0798189
+        1943  |    .057217   .0135046     4.24   0.001     .0287248    .0857092
+        1944  |   .0730492   .0118512     6.16   0.000     .0480454    .0980529
+        1945  |   .0736006   .0122138     6.03   0.000     .0478317    .0993696
+              |
+        _cons |   .8394718   .0100351    83.65   0.000     .8182995    .8606441
+-------------------------------------------------------------------------------
+
+added scalars:
+                e(ysd) =  .30661567
+               e(ymax) =  1
+               e(ymin) =  0
+              e(ymean) =  .89495611
+
+added macro:
+           e(fe_birth) : "Yes"
+
+added macro:
+          e(fe_county) : "Yes"
+
+------------------------------------------------------------
+                      (1)             (2)             (3)   
+              Years of ed         Jr high     High school   
+------------------------------------------------------------
+c.hiseg#c.~z       -0.391***       -0.009**        -0.026** 
+                  (0.080)         (0.004)         (0.010)   
+------------------------------------------------------------
+ymean              13.474           0.986           0.895   
+N                  26,884          26,884          26,884   
+r2                  0.056           0.008           0.019   
+------------------------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+(file <repo root>/output/tables/table2_panelC
+    > .tex not found)
+(output written to <repo root>/output/tables/table2_panelC.tex)
+(file <repo root>/output/tables/table2_panelC
+    > .csv not found)
+(output written to <repo root>/output/tables/table2_panelC.csv)
+
+. 
+. log close table2
+      name:  table2
+       log:  <repo root>/output/logs/04_table2.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. if "$only" == "" | "$only" == "05" do "$root/code/05_event_study.do"
+
+. /*****************************************************************************
+> **
+> Title:   Event Study for Antman and Cortes (2023) Replication
+> Purpose: Figure 2 (jr high) plus appendix Figures A1 (years of education) and
+>          A2 (high school). Model:
+>          Y_ict = a + sum over t in 1921-45, t != 1931, of
+>                  pi_t (HiSeg_c x 1[birthyr = t]) + X_ict b + mu_c + delta_t + 
+> e_ict
+>          Sample: Hispanic, born 1921-45, HiSeg or LoSeg county.
+>          Reference cohort 1931 (age 16 in 1947). X = female, census1990,
+>          census2000. County and birth-year FE. SE clustered by county. 90% CIs
+> .
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close es
+
+. log using "$log/05_event_study.log", replace text name(es)
+(file <repo root>/output/logs/05_event_study.
+    > log not found)
+--------------------------------------------------------------------------------
+      name:  es
+       log:  <repo root>/output/logs/05_event_study.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. 
+. * 1. Sample and Interaction Terms
+. ******************************************************************************
+> **
+. 
+. keep if es_sample == 1
+(209,857 observations deleted)
+
+. count
+  11,693
+
+. 
+. * Each cohort needs HiSeg and LoSeg obs or its interaction not identified
+. tab birthyr hiseg
+
+           |   High Segregation
+   year of |  County (Treatment)
+     birth |         0          1 |     Total
+-----------+----------------------+----------
+      1921 |         5        221 |       226 
+      1922 |        10        229 |       239 
+      1923 |         8        254 |       262 
+      1924 |         8        276 |       284 
+      1925 |         8        368 |       376 
+      1926 |        17        365 |       382 
+      1927 |         6        386 |       392 
+      1928 |         8        422 |       430 
+      1929 |        13        388 |       401 
+      1930 |        11        495 |       506 
+      1931 |        17        453 |       470 
+      1932 |        13        425 |       438 
+      1933 |        18        411 |       429 
+      1934 |        17        427 |       444 
+      1935 |        12        477 |       489 
+      1936 |        19        476 |       495 
+      1937 |        21        446 |       467 
+      1938 |        18        497 |       515 
+      1939 |        30        485 |       515 
+      1940 |        21        552 |       573 
+      1941 |        24        517 |       541 
+      1942 |        23        583 |       606 
+      1943 |        43        683 |       726 
+      1944 |        25        706 |       731 
+      1945 |        28        728 |       756 
+-----------+----------------------+----------
+     Total |       423     11,270 |    11,693 
+
+. 
+. * HiSeg x cohort dummies, 1931 left out as reference (age 16 in 1947)
+. * Built by hand so omitted cohort fixed, not picked by factor-variable base ru
+> les
+. forvalues t = 1921/1945 {
+  2.     if `t' != 1931 {
+  3.         gen byte hs_`t' = hiseg * (birthyr == `t')
+  4.         label variable hs_`t' "HiSeg x Born `t'"
+  5.     }
+  6. }
+
+. confirm new variable hs_1931
+
+. 
+. 
+. * 2. Regressions, One per Outcome
+. ******************************************************************************
+> **
+. 
+. tempname memhold bt st tcrit
+
+. tempfile coefs
+
+. postfile `memhold' str8 outcome int birthyr int age1947 double coef double se 
+> ///
+>     double p double lo90 double hi90 long nobs using "`coefs'"
+
+. 
+. foreach var in jrhigh yrsed hschool {
+  2. 
+.     regress `var' hs_* female census1990 census2000 i.countyfip i.birthyr, vce
+> (cluster countyfip)
+  3. 
+. * 24 interactions, NONE dropped for collinearity
+.     local nint = 0
+  4.     forvalues t = 1921/1945 {
+  5.         if `t' != 1931 {
+  6.             assert _se[hs_`t'] > 0
+  7.             local ++nint
+  8.         }
+  9.     }
+ 10.     display "`var': `nint' interactions estimated, reference cohort 1931"
+ 11.     assert `nint' == 24
+ 12. 
+. * 90% CI uses t w/ clustered df, same as regress
+.     scalar `tcrit' = invttail(e(df_r), 0.05)
+ 13. 
+.     forvalues t = 1921/1945 {
+ 14.         if `t' == 1931 {
+ 15.             post `memhold' ("`var'") (`t') (1947 - `t') (0) (0) (.) (0) (0)
+>  (e(N))
+ 16.         }
+ 17.         else {
+ 18.             scalar `bt' = _b[hs_`t']
+ 19.             scalar `st' = _se[hs_`t']
+ 20.             post `memhold' ("`var'") (`t') (1947 - `t') (`bt') (`st') ///
+>                 (2 * ttail(e(df_r), abs(`bt' / `st'))) ///
+>                 (`bt' - `tcrit' * `st') (`bt' + `tcrit' * `st') (e(N))
+ 21.         }
+ 22.     }
+ 23. }
+
+Linear regression                               Number of obs     =     11,693
+                                                F(17, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1263
+                                                Root MSE          =     .36396
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     hs_1921 |   -.135718   .0496955    -2.73   0.014    -.2405665   -.0308696
+     hs_1922 |  -.0318985   .0383915    -0.83   0.418    -.1128975    .0491005
+     hs_1923 |  -.0118188   .1490702    -0.08   0.938    -.3263295    .3026919
+     hs_1924 |  -.0645309   .0534499    -1.21   0.244    -.1773003    .0482385
+     hs_1925 |  -.1405764    .059624    -2.36   0.031     -.266372   -.0147807
+     hs_1926 |  -.0443775   .0356298    -1.25   0.230    -.1195499    .0307948
+     hs_1927 |  -.1169182   .0309818    -3.77   0.002    -.1822841   -.0515523
+     hs_1928 |   -.097241   .0499673    -1.95   0.068    -.2026628    .0081809
+     hs_1929 |  -.1251693   .0350336    -3.57   0.002    -.1990837   -.0512549
+     hs_1930 |   .0254474   .0359249     0.71   0.488    -.0503475    .1012423
+     hs_1932 |    -.02429   .0401408    -0.61   0.553    -.1089796    .0603996
+     hs_1933 |    .051351   .0254473     2.02   0.060    -.0023381      .10504
+     hs_1934 |  -.0032974   .0408527    -0.08   0.937     -.089489    .0828942
+     hs_1935 |   .0543367    .046699     1.16   0.261    -.0441896     .152863
+     hs_1936 |   .2322098   .0745659     3.11   0.006     .0748896    .3895301
+     hs_1937 |   .1443599   .0307072     4.70   0.000     .0795734    .2091464
+     hs_1938 |   .1428589   .0281309     5.08   0.000      .083508    .2022099
+     hs_1939 |   .2018844   .0574386     3.51   0.003     .0806996    .3230691
+     hs_1940 |    .140805   .0256021     5.50   0.000     .0867894    .1948206
+     hs_1941 |   .1816219   .0767212     2.37   0.030     .0197544    .3434895
+     hs_1942 |   .1279467   .0424877     3.01   0.008     .0383056    .2175879
+     hs_1943 |   .1610071   .0431967     3.73   0.002     .0698701    .2521441
+     hs_1944 |   .1636806   .0479354     3.41   0.003     .0625457    .2648155
+     hs_1945 |   .2107773   .0775226     2.72   0.015     .0472189    .3743358
+      female |   -.034287   .0072319    -4.74   0.000    -.0495451    -.019029
+  census1990 |  -.0784566   .0145344    -5.40   0.000    -.1091216   -.0477917
+  census2000 |  -.0896484   .0105461    -8.50   0.000    -.1118987    -.067398
+             |
+   countyfip |
+         17  |   .0398789   .0077623     5.14   0.000     .0235019    .0562559
+         19  |   -.283909   .0377019    -7.53   0.000    -.3634531   -.2043649
+         23  |   .0426584   .0046055     9.26   0.000     .0329415    .0523752
+         25  |  -.4169827   .0373651   -11.16   0.000    -.4958162   -.3381492
+         31  |  -.3722146   .0371467   -10.02   0.000    -.4505873   -.2938419
+         39  |  -.2672596   .0382039    -7.00   0.000    -.3478629   -.1866563
+         47  |  -.2644787   .0377479    -7.01   0.000    -.3441198   -.1848375
+         53  |  -.2501584   .0384167    -6.51   0.000    -.3312106   -.1691061
+         59  |  -.1455837   .0377783    -3.85   0.001     -.225289   -.0658785
+         65  |  -.2042082   .0374966    -5.45   0.000    -.2833192   -.1250972
+         71  |  -.1598235   .0378879    -4.22   0.001    -.2397601    -.079887
+         83  |  -.1185692    .037684    -3.15   0.006    -.1980755   -.0390629
+         89  |   .0488582   .0033498    14.59   0.000     .0417907    .0559256
+         97  |  -.0051838    .004996    -1.04   0.314    -.0157244    .0053568
+        107  |  -.3044632   .0379301    -8.03   0.000    -.3844888   -.2244376
+        111  |  -.1986888   .0377864    -5.26   0.000     -.278411   -.1189666
+        113  |  -.1599092   .0373742    -4.28   0.001    -.2387619   -.0810565
+             |
+     birthyr |
+       1922  |  -.0852994    .043192    -1.97   0.065    -.1764266    .0058278
+       1923  |  -.1258015    .124158    -1.01   0.325     -.387752    .1361489
+       1924  |   .0120041   .0205827     0.58   0.567    -.0314215    .0554297
+       1925  |   .0275615   .0274647     1.00   0.330     -.030384     .085507
+       1926  |  -.0494637   .0459862    -1.08   0.297     -.146486    .0475586
+       1927  |   .0182887    .004925     3.71   0.002     .0078978    .0286796
+       1928  |   .0102811   .0064604     1.59   0.130    -.0033491    .0239114
+       1929  |   .0399431   .0060765     6.57   0.000     .0271228    .0527634
+       1930  |  -.0641933   .0207211    -3.10   0.007     -.107911   -.0204756
+       1931  |  -.0265951   .0320637    -0.83   0.418    -.0942435    .0410534
+       1932  |   .0198751   .0087093     2.28   0.036     .0015001    .0382501
+       1933  |   -.036794   .0173344    -2.12   0.049    -.0733663   -.0002217
+       1934  |   .0214772   .0080504     2.67   0.016     .0044923     .038462
+       1935  |   .0084276   .0182657     0.46   0.650    -.0301096    .0469647
+       1936  |   -.148121   .0553112    -2.68   0.016    -.2648175   -.0314245
+       1937  |  -.0259817   .0152876    -1.70   0.107    -.0582357    .0062723
+       1938  |  -.0528724   .0285351    -1.85   0.081    -.1130762    .0073313
+       1939  |  -.0874687   .0333461    -2.62   0.018    -.1578227   -.0171146
+       1940  |  -.0166681    .015802    -1.05   0.306    -.0500073    .0166711
+       1941  |  -.0332678   .0533442    -0.62   0.541    -.1458142    .0792786
+       1942  |   .0231319   .0053181     4.35   0.000     .0119116    .0343521
+       1943  |   .0103459    .004991     2.07   0.054    -.0001842     .020876
+       1944  |   .0052987   .0085857     0.62   0.545    -.0128156     .023413
+       1945  |  -.0511597   .0483728    -1.06   0.305    -.1532174    .0508979
+             |
+       _cons |   1.044257   .0112804    92.57   0.000     1.020457    1.068056
+------------------------------------------------------------------------------
+jrhigh: 24 interactions estimated, reference cohort 1931
+
+Linear regression                               Number of obs     =     11,693
+                                                F(17, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1408
+                                                Root MSE          =     3.4598
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     hs_1921 |  -1.909646   .4812991    -3.97   0.001    -2.925099    -.894194
+     hs_1922 |   .1396438   .4991716     0.28   0.783    -.9135162    1.192804
+     hs_1923 |  -1.289749   1.137255    -1.13   0.272    -3.689148     1.10965
+     hs_1924 |   -.626372   .9459949    -0.66   0.517    -2.622247    1.369503
+     hs_1925 |   -1.09712   .9619714    -1.14   0.270    -3.126702    .9324621
+     hs_1926 |  -1.435434   .5627263    -2.55   0.021    -2.622683   -.2481854
+     hs_1927 |  -2.419257   .8434716    -2.87   0.011    -4.198826   -.6396871
+     hs_1928 |  -1.949188   .8106424    -2.40   0.028    -3.659494   -.2388819
+     hs_1929 |  -1.064748   .6273725    -1.70   0.108    -2.388388    .2588925
+     hs_1930 |   .0480772   .3971738     0.12   0.905    -.7898862    .8860406
+     hs_1932 |  -.4066734   .6276248    -0.65   0.526    -1.730846    .9174991
+     hs_1933 |    .138087   .2694219     0.51   0.615    -.4303436    .7065175
+     hs_1934 |    .167746   .3942094     0.43   0.676    -.6639632    .9994552
+     hs_1935 |   .3640658   .7780241     0.47   0.646    -1.277422    2.005553
+     hs_1936 |   .9743219   .8065835     1.21   0.244    -.7274205    2.676064
+     hs_1937 |   .9446359   .3138977     3.01   0.008     .2823697    1.606902
+     hs_1938 |  -.1645508   .3252653    -0.51   0.619    -.8508007     .521699
+     hs_1939 |   .9185324   .8078384     1.14   0.271    -.7858576    2.622922
+     hs_1940 |   1.128451   .2989289     3.77   0.002     .4977663    1.759136
+     hs_1941 |   .4553167   .5097816     0.89   0.384    -.6202284    1.530862
+     hs_1942 |   .9346908   .3796813     2.46   0.025     .1336332    1.735748
+     hs_1943 |   .8122384   .5755609     1.41   0.176    -.4020889    2.026566
+     hs_1944 |   1.153943   .2778188     4.15   0.001     .5677966    1.740089
+     hs_1945 |   1.330861   .8307036     1.60   0.128    -.4217706    3.083492
+      female |  -.6122142   .0314934   -19.44   0.000    -.6786595   -.5457689
+  census1990 |  -.3670117   .1197291    -3.07   0.007     -.619618   -.1144055
+  census2000 |  -.3849473   .0583683    -6.60   0.000    -.5080936   -.2618011
+             |
+   countyfip |
+         17  |   .6444671   .0700097     9.21   0.000     .4967595    .7921746
+         19  |  -2.150185   .3538331    -6.08   0.000    -2.896707   -1.403662
+         23  |   .5417279   .0822265     6.59   0.000     .3682451    .7152107
+         25  |  -3.403451   .3565232    -9.55   0.000    -4.155649   -2.651252
+         31  |  -2.956333   .3513315    -8.41   0.000    -3.697577   -2.215088
+         39  |  -1.705263     .35654    -4.78   0.000    -2.457497   -.9530297
+         47  |  -2.221806   .3533655    -6.29   0.000    -2.967343    -1.47627
+         53  |  -1.788201   .3571828    -5.01   0.000    -2.541791   -1.034611
+         59  |  -.7832659   .3543057    -2.21   0.041    -1.530786   -.0357463
+         65  |  -1.607273   .3538075    -4.54   0.000    -2.353742   -.8608042
+         71  |  -1.202446   .3550328    -3.39   0.004      -1.9515   -.4533927
+         83  |  -.6517308   .3545869    -1.84   0.084    -1.399844    .0963821
+         89  |   .7111573    .042181    16.86   0.000     .6221633    .8001514
+         97  |   .7295069   .0323958    22.52   0.000     .6611577    .7978561
+        107  |   -2.44939   .3553341    -6.89   0.000     -3.19908   -1.699701
+        111  |  -1.352307   .3536844    -3.82   0.001    -2.098516   -.6060983
+        113  |  -.9047982   .3541931    -2.55   0.021     -1.65208   -.1575161
+             |
+     birthyr |
+       1922  |  -1.723085   .6648987    -2.59   0.019    -3.125898   -.3202711
+       1923  |  -.6500929   .7935794    -0.82   0.424    -2.324399    1.024213
+       1924  |  -.6349112   1.024935    -0.62   0.544    -2.797334    1.527512
+       1925  |   -.478445   1.074009    -0.45   0.662    -2.744406    1.787516
+       1926  |   .1273473   .8136432     0.16   0.877     -1.58929    1.843984
+       1927  |    .790712   .9999143     0.79   0.440    -1.318923    2.900347
+       1928  |   .4032129   .4488231     0.90   0.382    -.5437212    1.350147
+       1929  |  -.2864355   .5434287    -0.53   0.605     -1.43297    .8600989
+       1930  |  -1.026717   .5320638    -1.93   0.071    -2.149273    .0958394
+       1931  |  -.6758214    .406778    -1.66   0.115    -1.534048    .1824052
+       1932  |  -.2918664   .6531267    -0.45   0.661    -1.669843    1.086111
+       1933  |  -.5075694   .3745331    -1.36   0.193    -1.297765    .2826264
+       1934  |  -.1993854   .5121826    -0.39   0.702    -1.279996    .8812254
+       1935  |  -.1823283    1.06595    -0.17   0.866    -2.431285    2.066629
+       1936  |  -.5552488   .9896542    -0.56   0.582    -2.643237    1.532739
+       1937  |  -.2923229   .3056175    -0.96   0.352    -.9371195    .3524738
+       1938  |    .487837   .4575258     1.07   0.301     -.477458    1.453132
+       1939  |   .0455415   .9918764     0.05   0.964    -2.047135    2.138218
+       1940  |  -.5325927   .5960444    -0.89   0.384    -1.790137    .7249511
+       1941  |   .5890186   .6856183     0.86   0.402    -.8575096    2.035547
+       1942  |   .1709469   .5003925     0.34   0.737    -.8847889    1.226683
+       1943  |   .3835354   .5788267     0.66   0.516    -.8376823    1.604753
+       1944  |   .1246852   .4502647     0.28   0.785    -.8252903    1.074661
+       1945  |   .0148762   .8460529     0.02   0.986    -1.770139    1.799892
+             |
+       _cons |    12.4801   .5239995    23.82   0.000     11.37456    13.58564
+------------------------------------------------------------------------------
+yrsed: 24 interactions estimated, reference cohort 1931
+
+Linear regression                               Number of obs     =     11,693
+                                                F(17, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0997
+                                                Root MSE          =     .47534
+
+                             (Std. err. adjusted for 18 clusters in countyfip)
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     hs_1921 |  -.5156913   .1068664    -4.83   0.000    -.7411596    -.290223
+     hs_1922 |  -.0412476   .1422324    -0.29   0.775    -.3413317    .2588366
+     hs_1923 |   .0492467   .2181939     0.23   0.824    -.4111022    .5095956
+     hs_1924 |   .0810292   .1892223     0.43   0.674     -.318195    .4802534
+     hs_1925 |   .1976386   .1572639     1.26   0.226    -.1341593    .5294366
+     hs_1926 |   -.168482   .0771645    -2.18   0.043    -.3312848   -.0056791
+     hs_1927 |  -.4624375   .1102914    -4.19   0.001    -.6951321   -.2297429
+     hs_1928 |  -.1490614   .2688422    -0.55   0.586    -.7162689    .4181462
+     hs_1929 |  -.2114935   .2121781    -1.00   0.333    -.6591503    .2361632
+     hs_1930 |   .2093549   .1319108     1.59   0.131    -.0689526    .4876623
+     hs_1932 |  -.0755848   .1491275    -0.51   0.619    -.3902163    .2390467
+     hs_1933 |   .0773206   .1099123     0.70   0.491    -.1545741    .3092153
+     hs_1934 |   .0308452   .0974977     0.32   0.756     -.174857    .2365474
+     hs_1935 |   .0604735   .1763397     0.34   0.736    -.3115707    .4325177
+     hs_1936 |   .0557859   .1128623     0.49   0.627    -.1823327    .2939044
+     hs_1937 |   .1496382   .1232811     1.21   0.241    -.1104621    .4097385
+     hs_1938 |   .0254474   .1414154     0.18   0.859    -.2729132    .3238079
+     hs_1939 |   .0920129   .1386187     0.66   0.516     -.200447    .3844729
+     hs_1940 |   .1936581   .0686041     2.82   0.012     .0489161    .3384002
+     hs_1941 |   .0781503   .0918571     0.85   0.407    -.1156513    .2719519
+     hs_1942 |   .0551752   .0902959     0.61   0.549    -.1353324    .2456828
+     hs_1943 |   .0499532   .1148491     0.43   0.669    -.1923571    .2922636
+     hs_1944 |   .1978313   .0974262     2.03   0.058      -.00772    .4033826
+     hs_1945 |   .1860429   .1207273     1.54   0.142    -.0686695    .4407553
+      female |  -.0626804   .0051279   -12.22   0.000    -.0734993   -.0518615
+  census1990 |  -.0057045   .0099721    -0.57   0.575    -.0267439    .0153349
+  census2000 |   .0011289   .0073529     0.15   0.880    -.0143844    .0166423
+             |
+   countyfip |
+         17  |   .1269755   .0149923     8.47   0.000     .0953444    .1586065
+         19  |  -.2219221   .0920668    -2.41   0.028    -.4161661   -.0276781
+         23  |   .0588529   .0178422     3.30   0.004     .0212093    .0964966
+         25  |  -.2779613   .0918378    -3.03   0.008    -.4717221   -.0842004
+         31  |  -.2773182    .091704    -3.02   0.008    -.4707968   -.0838396
+         39  |  -.1449644   .0922131    -1.57   0.134     -.339517    .0495881
+         47  |  -.1870711   .0921145    -2.03   0.058    -.3814157    .0072735
+         53  |  -.1699007   .0924713    -1.84   0.084     -.364998    .0251966
+         59  |  -.0763398   .0921455    -0.83   0.419    -.2707497    .1180702
+         65  |  -.2033059     .09184    -2.21   0.041    -.3970714   -.0095405
+         71  |  -.1510763   .0922766    -1.64   0.120    -.3457629    .0436102
+         83  |  -.0854257   .0922383    -0.93   0.367    -.2800315      .10918
+         89  |   .1154984    .009708    11.90   0.000     .0950162    .1359806
+         97  |   .1164096   .0037339    31.18   0.000     .1085317    .1242876
+        107  |  -.2586935   .0921542    -2.81   0.012    -.4531218   -.0642652
+        111  |  -.1247447   .0921415    -1.35   0.194    -.3191462    .0696569
+        113  |  -.0412786   .0921023    -0.45   0.660    -.2355975    .1530403
+             |
+     birthyr |
+       1922  |   -.429393   .1005178    -4.27   0.001    -.6414669   -.2173191
+       1923  |    -.52607   .1507519    -3.49   0.003    -.8441287   -.2080112
+       1924  |   -.508225   .1653636    -3.07   0.007    -.8571117   -.1593382
+       1925  |  -.6488581   .1215319    -5.34   0.000     -.905268   -.3924482
+       1926  |  -.2787815   .1119036    -2.49   0.023    -.5148774   -.0426856
+       1927  |  -.0077736   .0344848    -0.23   0.824    -.0805301    .0649829
+       1928  |  -.2850596   .1980023    -1.44   0.168     -.702808    .1326888
+       1929  |  -.1696795   .1359907    -1.25   0.229    -.4565947    .1172357
+       1930  |  -.5913144   .0903609    -6.54   0.000    -.7819591   -.4006696
+       1931  |  -.3300636   .0987121    -3.34   0.004     -.538328   -.1217993
+       1932  |  -.2851124   .1047948    -2.72   0.015    -.5062102   -.0640146
+       1933  |  -.3512261   .1035624    -3.39   0.003    -.5697237   -.1327286
+       1934  |  -.3088742   .0532875    -5.80   0.000     -.421301   -.1964474
+       1935  |  -.3406161   .1472534    -2.31   0.033    -.6512937   -.0299385
+       1936  |  -.2920546   .1032031    -2.83   0.012    -.5097941    -.074315
+       1937  |  -.3367298   .0415187    -8.11   0.000    -.4243266    -.249133
+       1938  |  -.2410152   .0943613    -2.55   0.021    -.4401001   -.0419302
+       1939  |  -.2430521   .1109334    -2.19   0.043    -.4771012    -.009003
+       1940  |  -.4000672   .1021801    -3.92   0.001    -.6156484   -.1844859
+       1941  |  -.2190878   .0489819    -4.47   0.000    -.3224306    -.115745
+       1942  |   -.192366   .0199152    -9.66   0.000    -.2343835   -.1503485
+       1943  |  -.1895872   .0234129    -8.10   0.000    -.2389841   -.1401904
+       1944  |  -.2787577   .0659047    -4.23   0.001    -.4178045    -.139711
+       1945  |  -.2702657   .0736828    -3.67   0.002    -.4257229   -.1148086
+             |
+       _cons |   .9702265   .0335401    28.93   0.000      .899463     1.04099
+------------------------------------------------------------------------------
+hschool: 24 interactions estimated, reference cohort 1931
+
+. 
+. postclose `memhold'
+
+. 
+. 
+. * 3. Coefficient Data Set, by Age in 1947
+. ******************************************************************************
+> **
+. 
+. use "`coefs'", clear
+
+. 
+. label variable outcome "Outcome (jrhigh, yrsed, hschool)"
+
+. label variable birthyr "Birth Year"
+
+. label variable age1947 "Age in 1947 (Mendez Decision)"
+
+. label variable coef "HiSeg x Cohort Coefficient (1931 = 0)"
+
+. label variable se "SE, Clustered by County"
+
+. label variable p "p-value"
+
+. label variable lo90 "90% CI Lower Bound"
+
+. label variable hi90 "90% CI Upper Bound"
+
+. label variable nobs "Regression N"
+
+. 
+. * Stars & point labels for plots
+. gen stars = cond(p < 0.01, "***", cond(p < 0.05, "**", cond(p < 0.10, "*", "")
+> ))
+(46 missing values generated)
+
+. label variable stars "Significance Stars (10/5/1 percent)"
+
+. 
+. gen coef_lab = strtrim(string(coef, "%9.3f")) + stars
+
+. replace coef_lab = "0" if birthyr == 1931
+(3 real changes made)
+
+. label variable coef_lab "Point Label for Plots"
+
+. 
+. gen lab_pos = cond(coef >= 0, 12, 6)
+
+. label variable lab_pos "Label Position (12 above, 6 below)"
+
+. 
+. * Stagger labels: flip to other side if same side as next-older cohort
+. * and nearly same height
+. * Cutoff scales with each outcome's CI range
+. gen neg_age = -age1947
+
+. sort outcome neg_age
+
+. by outcome: egen double ci_hi = max(hi90)
+
+. by outcome: egen double ci_lo = min(lo90)
+
+. sort outcome neg_age
+
+. by outcome: replace lab_pos = 18 - lab_pos if _n > 1 & lab_pos == lab_pos[_n-1
+> ] ///
+>     & abs(coef - coef[_n-1]) < 0.04 * (ci_hi - ci_lo)
+(15 real changes made)
+
+. drop neg_age ci_hi ci_lo
+
+. assert inlist(lab_pos, 12, 6)
+
+. 
+. * 25 cohorts x 3 outcomes, reference cohort pinned at 0
+. assert _N == 75
+
+. isid outcome birthyr
+
+. assert coef == 0 & se == 0 if birthyr == 1931
+
+. 
+. sort outcome age1947
+
+. order outcome birthyr age1947 coef se p lo90 hi90 stars coef_lab nobs
+
+. 
+. save "$tab/eventstudy_coefs.dta", replace
+(file <repo root>/output/tables/eventstudy_co
+    > efs.dta not found)
+file <repo root>/output/tables/eventstudy_co
+    > efs.dta saved
+
+. export delimited using "$tab/eventstudy_coefs.csv", replace
+(file <repo root>/output/tables/eventstudy_co
+    > efs.csv not found)
+file <repo root>/output/tables/eventstudy_coefs.csv saved
+
+. 
+. * Verify against paper Figure 2 (jr high)
+. list age1947 birthyr coef se p coef_lab if outcome == "jrhigh", sep(0) noobs
+
+  +--------------------------------------------------------------------+
+  | age1947   birthyr         coef          se           p    coef_lab |
+  |--------------------------------------------------------------------|
+  |       2      1945    .21077735   .07752261   .01458709     0.211** |
+  |       3      1944     .1636806   .04793542   .00330172    0.164*** |
+  |       4      1943     .1610071   .04319668    .0016755    0.161*** |
+  |       5      1942    .12794673   .04248766   .00786147    0.128*** |
+  |       6      1941    .18162193   .07672117   .03004573     0.182** |
+  |       7      1940      .140805   .02560206   .00003906    0.141*** |
+  |       8      1939    .20188437   .05743856   .00265745    0.202*** |
+  |       9      1938    .14285892   .02813088   .00009304    0.143*** |
+  |      10      1937    .14435991    .0307072   .00020569    0.144*** |
+  |      11      1936    .23220984   .07456586   .00631011    0.232*** |
+  |      12      1935    .05433672   .04669902   .26067753       0.054 |
+  |      13      1934   -.00329739   .04085266   .93661192      -0.003 |
+  |      14      1933    .05135095   .02544726   .05966514      0.051* |
+  |      15      1932   -.02428998   .04014077   .55309198      -0.024 |
+  |      16      1931            0           0           .           0 |
+  |      17      1930    .02544738   .03592491   .48832827       0.025 |
+  |      18      1929   -.12516931   .03503358   .00234302   -0.125*** |
+  |      19      1928     -.097241   .04996733   .06836669     -0.097* |
+  |      20      1927   -.11691822    .0309818   .00151469   -0.117*** |
+  |      21      1926   -.04437753   .03562981   .22983606      -0.044 |
+  |      22      1925   -.14057638   .05962399   .03063102    -0.141** |
+  |      23      1924   -.06453089   .05344989   .24384089      -0.065 |
+  |      24      1923   -.01181877   .14907024   .93773315      -0.012 |
+  |      25      1922   -.03189853   .03839151   .41756166      -0.032 |
+  |      26      1921   -.13571804   .04969554    .0142232    -0.136** |
+  +--------------------------------------------------------------------+
+
+. 
+. 
+. * 4. Figures
+. ******************************************************************************
+> **
+. 
+. * Figure 2 in paper, A1/A2 in its appendix
+. local fname_jrhigh  "fig2_eventstudy_jrhigh"
+
+. local fname_yrsed   "figA1_eventstudy_yrsed"
+
+. local fname_hschool "figA2_eventstudy_hschool"
+
+. 
+. * Paper's y-axis for jr high, auto for other two
+. local ylab_jrhigh  "-0.4(0.2)0.4"
+
+. local ylab_yrsed   "#7"
+
+. local ylab_hschool "#7"
+
+. 
+. foreach var in jrhigh yrsed hschool {
+  2. 
+. * room under CI band for group labels
+.     quietly summarize lo90 if outcome == "`var'"
+  3.     local ymin = r(min)
+  4.     quietly summarize hi90 if outcome == "`var'"
+  5.     local ymax = r(max)
+  6.     local ytxt = `ymin' - 0.1 * (`ymax' - `ymin')
+  7. 
+. * Blue dashed at 16 & 12, red at 6 & 2, as in paper
+.     twoway ///
+>         (rarea hi90 lo90 age1947 if outcome == "`var'", color(gs13) lwidth(non
+> e)) ///
+>         (connected coef age1947 if outcome == "`var'", lcolor(black) mcolor(bl
+> ack) ///
+>             msymbol(plus) mlabel(coef_lab) mlabvposition(lab_pos) mlabsize(vsm
+> all) mlabcolor(black)), ///
+>         yline(0, lcolor(black) lwidth(thin)) ///
+>         xline(16 12, lpattern(dash) lcolor(navy)) ///
+>         xline(6 2, lpattern(dash) lcolor(red)) ///
+>         xscale(reverse) ///
+>         xlabel(2(1)15 16 "16{sup:†}" 17(1)26, labsize(small)) ///
+>         ylabel(`ylab_`var'', angle(0) labsize(small)) ///
+>         yscale(range(`ytxt' `ymax')) ///
+>         text(`ytxt' 14 "Old group", color(navy) size(small)) ///
+>         text(`ytxt' 4 "Young group", color(red) size(small)) ///
+>         ytitle("") ///
+>         xtitle("Age at Mendez versus Westminster Decision") ///
+>         legend(order(2 "Difference between high and low likelihood" "segregate
+> d counties (high - low)") ///
+>             ring(0) position(11) cols(1) region(lcolor(black) fcolor(white)) s
+> ize(small)) ///
+>         graphregion(color(white))
+  8. 
+.     graph export "$fig/`fname_`var''.png", replace width(2000)
+  9.     graph export "$fig/`fname_`var''.pdf", replace
+ 10. }
+(file <repo root>/output/figures/fig2_eventst
+    > udy_jrhigh.png not found)
+file <repo root>/output/figures/fig2_eventst
+    > udy_jrhigh.png saved as PNG format
+file <repo root>/output/figures/fig2_eventst
+    > udy_jrhigh.pdf saved as PDF format
+(file <repo root>/output/figures/figA1_events
+    > tudy_yrsed.png not found)
+file <repo root>/output/figures/figA1_events
+    > tudy_yrsed.png saved as PNG format
+file <repo root>/output/figures/figA1_events
+    > tudy_yrsed.pdf saved as PDF format
+(file <repo root>/output/figures/figA2_events
+    > tudy_hschool.png not found)
+file <repo root>/output/figures/figA2_events
+    > tudy_hschool.png saved as PNG format
+file <repo root>/output/figures/figA2_events
+    > tudy_hschool.pdf saved as PDF format
+
+. 
+. 
+. * 5. Appendix Table of Event-Study Coefficients
+. ******************************************************************************
+> **
+. 
+. * One row / cohort, 3 outcomes side by side
+. * Body rows only, paper supplies tabular wrapper & header
+. preserve
+
+. keep outcome age1947 birthyr coef se stars
+
+. reshape wide coef se stars, i(age1947 birthyr) j(outcome) string
+(j = hschool jrhigh yrsed)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations               75   ->   25          
+Number of variables                   6   ->   11          
+j variable (3 values)           outcome   ->   (dropped)
+xij variables:
+                                   coef   ->   coefhschool coefjrhigh coefyrsed
+                                     se   ->   sehschool sejrhigh seyrsed
+                                  stars   ->   starshschool starsjrhigh starsyrs
+> ed
+-----------------------------------------------------------------------------
+
+. gsort -age1947
+
+. 
+. gen str244 row = string(age1947) + " & " + string(birthyr)
+
+. label variable row "LaTeX table row"
+
+. 
+. * Reference cohort prints as 0 with no SE
+. foreach o in jrhigh yrsed hschool {
+  2.     replace row = row + " & " ///
+>         + cond(birthyr == 1931, "0", strtrim(string(coef`o', "%9.3f")) ///
+>             + cond(stars`o' == "", "", "\sym{" + stars`o' + "}")) ///
+>         + " & " ///
+>         + cond(birthyr == 1931, "", "(" + strtrim(string(se`o', "%9.3f")) + ")
+> ")
+  3. }
+(25 real changes made)
+(25 real changes made)
+(25 real changes made)
+
+. 
+. * Row end from char(92) so Stata can't collapse the 2 backslashes
+. replace row = row + " " + char(92) + char(92)
+(25 real changes made)
+
+. 
+. file open tex using "$tab/eventstudy_coefs.tex", write replace text
+(file <repo root>/output/tables/eventstudy_co
+    > efs.tex not found)
+
+. forvalues i = 1/`=_N' {
+  2.     file write tex (row[`i']) _n
+  3. }
+
+. file close tex
+
+. restore
+
+. 
+. 
+. log close es
+      name:  es
+       log:  <repo root>/output/logs/05_event_study.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. if "$only" == "" | "$only" == "06" do "$root/code/06_prose_numbers.do"
+
+. /*****************************************************************************
+> **
+> Title:   Numbers Cited in the Write-up
+> Purpose: Write the derived numbers the paper text quotes as LaTeX macros, so
+>          none are typed by hand -> output/tables/prose_numbers.tex (+ .csv).
+>          Effect sizes relative to the pre-Mendez HiSeg mean (Tables 1, 2A) and
+>  the
+>          Panel B small-cell check (LoSeg group size, leave-one-out range).
+> Author:  Ibraheem Saqib Ellahi
+> Date:    Spring 2026
+> ******************************************************************************
+> */
+. 
+. version 16
+
+. clear all
+
+. set more off
+
+. capture log close prose
+
+. log using "$log/06_prose_numbers.log", replace text name(prose)
+(file <repo root>/output/logs/06_prose_number
+    > s.log not found)
+--------------------------------------------------------------------------------
+      name:  prose
+       log:  <repo root>/output/logs/06_prose_numbers.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. 
+. * 1. Output Files
+. ******************************************************************************
+> **
+. 
+. * One \newcommand / number, -ves get a real minus sign
+. * Backslashes from char(92) so Stata never reads them as escapes
+. program define put_num
+  1.     syntax, name(name) value(real) fmt(string) note(string)
+  2.     local s = strtrim(string(abs(`value'), "`fmt'"))
+  3.     if `value' < 0 local s = char(92) + "ensuremath{-}" + "`s'"
+  4.     local line = char(92) + "newcommand{" + char(92) + "`name'" + "}{" + "`
+> s'" + "}  % " + "`note'"
+  5.     file write tex `"`line'"' _n
+  6.     file write csv "`name',`value',`note'" _n
+  7.     display as text "`name'" _col(26) as result "`s'" _col(52) as text "`no
+> te'"
+  8. end
+
+. 
+. file open tex using "$tab/prose_numbers.tex", write replace text
+(file <repo root>/output/tables/prose_numbers
+    > .tex not found)
+
+. file open csv using "$tab/prose_numbers.csv", write replace text
+(file <repo root>/output/tables/prose_numbers
+    > .csv not found)
+
+. file write tex "% Generated by code/06_prose_numbers.do, do not edit by hand" 
+> _n
+
+. file write csv "macro,value,note" _n
+
+. 
+. 
+. * 2. Table 1: DiD Relative to the Pre-Mendez HiSeg Mean
+. ******************************************************************************
+> **
+. 
+. preserve
+
+. keep if hispanic == 1 & sample_tables == 1 & !missing(hiseg)
+(215,920 observations deleted)
+
+. assert _N == 5630
+
+. 
+. foreach var in yrsed jrhigh hschool {
+  2.     * DiD from 4 cell means, m<post><hiseg>
+.     forvalues p = 0/1 {
+  3.         forvalues h = 0/1 {
+  4.             quietly summarize `var' if post_mendez == `p' & hiseg == `h'
+  5.             local m`p'`h' = r(mean)
+  6.         }
+  7.     }
+  8.     local did_`var' = (`m11' - `m10') - (`m01' - `m00')
+  9.     local base_`var' = `m01'
+ 10. 
+. * Same number as Table 1 DiD column
+.     regress `var' c.hiseg##c.post_mendez, robust
+ 11.     assert reldif(_b[c.hiseg#c.post_mendez], `did_`var'') < 1e-8
+ 12. }
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =     104.17
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0559
+                                                Root MSE          =      3.288
+
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -1.922901   .2743583    -7.01   0.000    -2.460749   -1.385053
+  post_mendez |   .7732268   .3391334     2.28   0.023     .1083945    1.438059
+              |
+      c.hiseg#|
+c.post_mendez |   .7666725   .3526924     2.17   0.030     .0752592    1.458086
+              |
+        _cons |   12.05195   .2617071    46.05   0.000      11.5389    12.56499
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      94.83
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0513
+                                                Root MSE          =     .32598
+
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.1965522   .0201927    -9.73   0.000    -.2361376   -.1569668
+  post_mendez |    .004995   .0217377     0.23   0.818    -.0376193    .0476093
+              |
+      c.hiseg#|
+c.post_mendez |    .146036   .0239191     6.11   0.000     .0991453    .1929268
+              |
+        _cons |    .974026   .0181328    53.72   0.000     .9384788    1.009573
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      80.73
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0404
+                                                Root MSE          =     .48028
+
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.2225025   .0532571    -4.18   0.000    -.3269069   -.1180982
+  post_mendez |   .1098901   .0615976     1.78   0.074    -.0108649    .2306451
+              |
+      c.hiseg#|
+c.post_mendez |   .0802599   .0630636     1.27   0.203    -.0433691     .203889
+              |
+        _cons |   .7012987    .052177    13.44   0.000     .5990117    .8035857
+-------------------------------------------------------------------------------
+
+. restore
+
+. 
+. put_num, name(tOneDidYrsedPctBase) value(`=100 * `did_yrsed' / `base_yrsed'') 
+> fmt(%4.1f) ///
+>     note(Table 1 DiD years of ed as pct of 1931-35 HiSeg mean)
+tOneDidYrsedPctBase      7.6                       Table 1 DiD years of ed as pc
+> t of 1931-35 HiSeg mean
+
+. put_num, name(tOneDidJrhighPctBase) value(`=100 * `did_jrhigh' / `base_jrhigh'
+> ') fmt(%4.1f) ///
+>     note(Table 1 DiD jr high as pct of 1931-35 HiSeg mean)
+tOneDidJrhighPctBase     18.8                      Table 1 DiD jr high as pct of
+>  1931-35 HiSeg mean
+
+. put_num, name(tOneDidHschoolPctBase) value(`=100 * `did_hschool' / `base_hscho
+> ol'') fmt(%4.1f) ///
+>     note(Table 1 DiD high school as pct of 1931-35 HiSeg mean)
+tOneDidHschoolPctBase    16.8                      Table 1 DiD high school as pc
+> t of 1931-35 HiSeg mean
+
+. put_num, name(tOneDidJrhighPp) value(`=100 * `did_jrhigh'') fmt(%4.1f) ///
+>     note(Table 1 DiD jr high in percentage points)
+tOneDidJrhighPp          14.6                      Table 1 DiD jr high in percen
+> tage points
+
+. put_num, name(tOneDidHschoolPp) value(`=100 * `did_hschool'') fmt(%4.1f) ///
+>     note(Table 1 DiD high school in percentage points)
+tOneDidHschoolPp         8.0                       Table 1 DiD high school in pe
+> rcentage points
+
+. 
+. 
+. * 3. Table 2 Panel A: Coefficient Relative to the Pre-Mendez HiSeg Mean
+. ******************************************************************************
+> **
+. 
+. * Same base paper uses for Table 2 (1931-35 HiSeg mean, Table 1)
+. 
+. foreach var in yrsed jrhigh hschool {
+  2.     * Eq (1), same spec as 04
+.     regress `var' c.hiseg#c.post_mendez female census1990 census2000 ///
+>         i.countyfip i.birthyr if hispanic == 1 & sample_tables == 1 & !missing
+> (hiseg), ///
+>         vce(cluster countyfip)
+  3.     assert e(N) == 5630
+  4.     local b_`var' = _b[c.hiseg#c.post_mendez]
+  5. }
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1073
+                                                Root MSE          =     3.2051
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .9128454   .3518344     2.59   0.019     .1705397    1.655151
+              |
+       female |  -.7157995   .0498504   -14.36   0.000    -.8209746   -.6106244
+   census1990 |  -.1586804   .1115081    -1.42   0.173    -.3939418    .0765811
+   census2000 |  -.4642654   .0458803   -10.12   0.000    -.5610644   -.3674663
+              |
+    countyfip |
+          17  |   .7802259   .0328914    23.72   0.000     .7108311    .8496207
+          19  |   -1.84255   .2114874    -8.71   0.000    -2.288749   -1.396351
+          23  |   .6267831    .025534    24.55   0.000      .572911    .6806551
+          25  |  -2.840832   .2002766   -14.18   0.000    -3.263379   -2.418286
+          31  |  -3.026547   .2086242   -14.51   0.000    -3.466705   -2.586388
+          39  |  -1.824246   .2183727    -8.35   0.000    -2.284972   -1.363519
+          47  |  -1.950071   .2163367    -9.01   0.000    -2.406501    -1.49364
+          53  |  -1.538592   .2231008    -6.90   0.000    -2.009293    -1.06789
+          59  |  -.6851053   .2112255    -3.24   0.005    -1.130752   -.2394585
+          65  |  -1.620782   .2107175    -7.69   0.000    -2.065357   -1.176207
+          71  |  -1.164513    .214606    -5.43   0.000    -1.617292   -.7117337
+          83  |   -.695107   .2110398    -3.29   0.004    -1.140362    -.249852
+          89  |   .5497779   .0534124    10.29   0.000     .4370877    .6624682
+          97  |   .9419265   .0297837    31.63   0.000     .8790884    1.004765
+         107  |  -2.344629   .2174363   -10.78   0.000    -2.803379   -1.885878
+         111  |  -1.193401   .2129548    -5.60   0.000    -1.642697   -.7441061
+         113  |  -.5857353   .1996143    -2.93   0.009    -1.006885   -.1645859
+              |
+      birthyr |
+        1932  |  -.0113976    .261975    -0.04   0.966    -.5641166    .5413213
+        1933  |   .2985554   .1907524     1.57   0.136    -.1038969    .7010078
+        1934  |    .630502   .1036112     6.09   0.000     .4119015    .8491025
+        1935  |   .8403785   .2708859     3.10   0.006     .2688593    1.411898
+        1941  |   .8311845     .34336     2.42   0.027     .1067583    1.555611
+        1942  |   .8802409   .3320609     2.65   0.017     .1796536    1.580828
+        1943  |   .9757479   .3509809     2.78   0.013      .235243    1.716253
+        1944  |   1.039522   .3076112     3.38   0.004     .3905192    1.688525
+        1945  |    1.09778   .3366277     3.26   0.005     .3875577    1.808002
+              |
+        _cons |   11.68901   .2144309    54.51   0.000      11.2366    12.14142
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.1026
+                                                Root MSE          =     .31781
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .1530534   .0354538     4.32   0.000     .0782523    .2278544
+              |
+       female |  -.0298221   .0070288    -4.24   0.001    -.0446517   -.0149926
+   census1990 |  -.0519573   .0123931    -4.19   0.001    -.0781045   -.0258101
+   census2000 |  -.0818289   .0117769    -6.95   0.000     -.106676   -.0569818
+              |
+    countyfip |
+          17  |    .078354   .0039421    19.88   0.000     .0700368    .0866711
+          19  |  -.2252894   .0216647   -10.40   0.000     -.270998   -.1795809
+          23  |   .0621992   .0030116    20.65   0.000     .0558453     .068553
+          25  |  -.3493443   .0182283   -19.16   0.000    -.3878027   -.3108858
+          31  |  -.3542142   .0193345   -18.32   0.000    -.3950065   -.3134219
+          39  |  -.2526306   .0222855   -11.34   0.000    -.2996489   -.2056123
+          47  |  -.2105919   .0222079    -9.48   0.000    -.2574466   -.1637373
+          53  |  -.2192022   .0245831    -8.92   0.000     -.271068   -.1673364
+          59  |  -.1225439   .0215893    -5.68   0.000    -.1680934   -.0769944
+          65  |  -.1883786   .0201273    -9.36   0.000    -.2308434   -.1459137
+          71  |  -.1390368   .0222174    -6.26   0.000    -.1859115   -.0921621
+          83  |  -.1106018   .0214321    -5.16   0.000    -.1558196   -.0653841
+          89  |   .0285123   .0038867     7.34   0.000     .0203121    .0367125
+          97  |   .0224583   .0037464     5.99   0.000      .014554    .0303626
+         107  |  -.2674766   .0225718   -11.85   0.000     -.315099   -.2198542
+         111  |  -.1567073    .022061    -7.10   0.000    -.2032518   -.1101627
+         113  |  -.0938329    .020057    -4.68   0.000    -.1361494   -.0515163
+              |
+      birthyr |
+        1932  |   .0244292    .019629     1.24   0.230    -.0169845    .0658428
+        1933  |   .0408802   .0127568     3.20   0.005     .0139658    .0677946
+        1934  |   .0449135   .0144866     3.10   0.006     .0143494    .0754775
+        1935  |   .0886724   .0237649     3.73   0.002     .0385328     .138812
+        1941  |   .0230376    .030607     0.75   0.462    -.0415374    .0876126
+        1942  |    .028277   .0295479     0.96   0.352    -.0340637    .0906177
+        1943  |   .0473957   .0265358     1.79   0.092    -.0085898    .1033813
+        1944  |   .0443176   .0271777     1.63   0.121    -.0130223    .1016574
+        1945  |   .0328279   .0281844     1.16   0.260     -.026636    .0922919
+              |
+        _cons |   .9713446   .0226321    42.92   0.000     .9235951    1.019094
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(12, 17)         =          .
+                                                Prob > F          =          .
+                                                R-squared         =     0.0688
+                                                Root MSE          =     .47425
+
+                              (Std. err. adjusted for 18 clusters in countyfip)
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+      c.hiseg#|
+c.post_mendez |   .0897661   .0441831     2.03   0.058    -.0034522    .1829843
+              |
+       female |  -.0783407   .0068082   -11.51   0.000    -.0927047   -.0639768
+   census1990 |   .0068123   .0194488     0.35   0.730    -.0342211    .0478458
+   census2000 |  -.0177415   .0120858    -1.47   0.160    -.0432403    .0077572
+              |
+    countyfip |
+          17  |   .1565788   .0078951    19.83   0.000     .1399215     .173236
+          19  |  -.2348304   .0268987    -8.73   0.000    -.2915816   -.1780792
+          23  |  -.0355487   .0040924    -8.69   0.000    -.0441828   -.0269145
+          25  |  -.2663568   .0275824    -9.66   0.000    -.3245505    -.208163
+          31  |  -.3280361   .0284104   -11.55   0.000    -.3879768   -.2680954
+          39  |  -.1758804   .0288507    -6.10   0.000      -.23675   -.1150108
+          47  |  -.1782055    .027852    -6.40   0.000    -.2369681   -.1194429
+          53  |  -.1579638   .0276692    -5.71   0.000    -.2163407   -.0995869
+          59  |  -.0918187   .0269865    -3.40   0.003    -.1487553   -.0348822
+          65  |  -.2246759   .0286992    -7.83   0.000     -.285226   -.1641259
+          71  |  -.1692607   .0272624    -6.21   0.000    -.2267792   -.1117421
+          83  |  -.0958771   .0270401    -3.55   0.002    -.1529267   -.0388276
+          89  |   .0909539   .0075491    12.05   0.000     .0750266    .1068811
+          97  |   .0709331   .0048085    14.75   0.000     .0607879    .0810782
+         107  |  -.2824578   .0272997   -10.35   0.000    -.3400551   -.2248605
+         111  |  -.1212704   .0271804    -4.46   0.000    -.1786161   -.0639248
+         113  |  -.0256946   .0258879    -0.99   0.335    -.0803132     .028924
+              |
+      birthyr |
+        1932  |  -.0294301   .0371826    -0.79   0.440    -.1078784    .0490183
+        1933  |    .052966   .0310046     1.71   0.106     -.012448      .11838
+        1934  |   .0500165   .0186296     2.68   0.016     .0107115    .0893216
+        1935  |   .0475969   .0261019     1.82   0.086    -.0074733    .1026672
+        1941  |   .0986052   .0446167     2.21   0.041     .0044721    .1927382
+        1942  |   .1047514   .0501902     2.09   0.052    -.0011407    .2106434
+        1943  |   .1032289   .0501923     2.06   0.055    -.0026677    .2091255
+        1944  |   .1560825   .0468736     3.33   0.004     .0571878    .2549772
+        1945  |   .1525286   .0452954     3.37   0.004     .0569637    .2480935
+              |
+        _cons |    .663598   .0291414    22.77   0.000     .6021151     .725081
+-------------------------------------------------------------------------------
+
+. 
+. put_num, name(tTwoAYrsedPctBase) value(`=100 * `b_yrsed' / `base_yrsed'') fmt(
+> %4.1f) ///
+>     note(Table 2A years of ed as pct of 1931-35 HiSeg mean)
+tTwoAYrsedPctBase        9.0                       Table 2A years of ed as pct o
+> f 1931-35 HiSeg mean
+
+. put_num, name(tTwoAJrhighPctBase) value(`=100 * `b_jrhigh' / `base_jrhigh'') f
+> mt(%4.1f) ///
+>     note(Table 2A jr high as pct of 1931-35 HiSeg mean)
+tTwoAJrhighPctBase       19.7                      Table 2A jr high as pct of 19
+> 31-35 HiSeg mean
+
+. put_num, name(tTwoAHschoolPctBase) value(`=100 * `b_hschool' / `base_hschool''
+> ) fmt(%4.1f) ///
+>     note(Table 2A high school as pct of 1931-35 HiSeg mean)
+tTwoAHschoolPctBase      18.7                      Table 2A high school as pct o
+> f 1931-35 HiSeg mean
+
+. put_num, name(tTwoAJrhighPp) value(`=100 * `b_jrhigh'') fmt(%4.1f) ///
+>     note(Table 2A jr high in percentage points)
+tTwoAJrhighPp            15.3                      Table 2A jr high in percentag
+> e points
+
+. put_num, name(tTwoAHschoolPp) value(`=100 * `b_hschool'') fmt(%4.1f) ///
+>     note(Table 2A high school in percentage points)
+tTwoAHschoolPp           9.0                       Table 2A high school in perce
+> ntage points
+
+. 
+. 
+. * 4. Table 2 Panel B: How Small the LoSeg Placebo Group Is
+. ******************************************************************************
+> **
+. 
+. * Panel B yrsed gap to paper is small-cell noise, not a bug
+. * Puts numbers on it: LoSeg group size, leave-one-out over those people
+. preserve
+
+. keep if hispanic == 1 & sample_placebo == 1 & !missing(hiseg)
+(218,052 observations deleted)
+
+. assert _N == 3498
+
+. 
+. count if hiseg == 0
+  94
+
+. local n_lo = r(N)
+
+. count if hiseg == 0 & placebo_post == 0
+  39
+
+. local n_lo_pre = r(N)
+
+. count if hiseg == 0 & placebo_post == 1
+  55
+
+. local n_lo_post = r(N)
+
+. count if hiseg == 1
+  3,404
+
+. local n_hi = r(N)
+
+. assert `n_lo' + `n_hi' == _N
+
+. 
+. * pt estimate only, no SE needed
+. regress yrsed c.hiseg#c.placebo_post female census1990 census2000 i.countyfip 
+> i.birthyr
+
+      Source |       SS           df       MS      Number of obs   =     3,498
+-------------+----------------------------------   F(30, 3467)     =     11.00
+       Model |  5038.87368        30  167.962456   Prob > F        =    0.0000
+    Residual |  52925.9488     3,467  15.2656328   R-squared       =    0.0869
+-------------+----------------------------------   Adj R-squared   =    0.0790
+       Total |  57964.8225     3,497  16.5755855   Root MSE        =    3.9071
+
+------------------------------------------------------------------------------
+       yrsed | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     c.hiseg#|
+          c. |
+placebo_post |  -.4140853   .8459321    -0.49   0.625    -2.072661     1.24449
+             |
+      female |  -.4303538   .1334033    -3.23   0.001    -.6919107   -.1687969
+  census1990 |  -.6469249   .1650734    -3.92   0.000    -.9705758   -.3232741
+  census2000 |  -.4083629   .1743117    -2.34   0.019    -.7501269   -.0665989
+             |
+   countyfip |
+         17  |  -.4319978   1.703349    -0.25   0.800    -3.771666     2.90767
+         19  |  -4.109373   1.066258    -3.85   0.000     -6.19993   -2.018816
+         23  |  -.8035352   1.679224    -0.48   0.632    -4.095903    2.488832
+         25  |   -5.76555   1.102102    -5.23   0.000    -7.926386   -3.604715
+         31  |  -4.967067   1.223369    -4.06   0.000    -7.365663   -2.568471
+         39  |  -3.198027   1.678952    -1.90   0.057    -6.489861    .0938068
+         47  |  -4.033713   1.123876    -3.59   0.000    -6.237239   -1.830188
+         53  |  -3.952204   1.129664    -3.50   0.000    -6.167078   -1.737329
+         59  |  -2.295825   1.059973    -2.17   0.030    -4.374059   -.2175914
+         65  |  -3.138817   1.074184    -2.92   0.003    -5.244913   -1.032721
+         71  |  -2.500169   1.059349    -2.36   0.018    -4.577181   -.4231576
+         83  |  -1.948979   1.079973    -1.80   0.071    -4.066425    .1684676
+         89  |  -.1934088   1.385942    -0.14   0.889    -2.910755    2.523937
+         97  |  -.2400944    1.11172    -0.22   0.829    -2.419787    1.939598
+        107  |  -4.517887   1.087699    -4.15   0.000    -6.650484   -2.385291
+        111  |  -3.270556   1.070907    -3.05   0.002    -5.370229   -1.170884
+        113  |  -2.915468    1.17232    -2.49   0.013    -5.213974   -.6169615
+             |
+     birthyr |
+       1922  |   .2593185   .3636342     0.71   0.476    -.4536404    .9722774
+       1923  |  -.0222469   .3560533    -0.06   0.950    -.7203422    .6758484
+       1924  |   .6538011   .3492562     1.87   0.061    -.0309675     1.33857
+       1925  |   .3646619   .3307115     1.10   0.270    -.2837471    1.013071
+       1926  |   1.050763   .8842155     1.19   0.235    -.6828724    2.784399
+       1927  |    .765907    .892796     0.86   0.391     -.984552    2.516366
+       1928  |   .8328396   .8899533     0.94   0.349    -.9120459    2.577725
+       1929  |   .9738855   .8866814     1.10   0.272    -.7645851    2.712356
+       1930  |   1.339787   .8861271     1.51   0.131     -.397597     3.07717
+             |
+       _cons |   12.22246   1.076989    11.35   0.000     10.11086    14.33406
+------------------------------------------------------------------------------
+
+. local b_full = _b[c.hiseg#c.placebo_post]
+
+. 
+. gen long obs_id = _n
+
+. label variable obs_id "Row ID for Leave-One-Out"
+
+. 
+. * drop each LoSeg person once -> min, max, biggest move
+. local loo_min = .
+
+. local loo_max = .
+
+. local loo_shift = 0
+
+. levelsof obs_id if hiseg == 0, local(lo_ids)
+1 2 3 4 5 6 7 8 9 10 11 12 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49
+>  50 1144 1145 1146 1147 1148 1149 1150 1151 1152 1153 1154 1155 1156 1157 1158
+>  1159 1160 1185 1186 1187 1188 1189 1190 1191 1192 1193 1194 1195 1196 1197 11
+> 98 1199 1200 1201 1202 2458 2459 2460 2461 2462 2463 2464 2465 2466 2467 2468 
+> 2482 2483 2484 2485 2486 2487 2488 2489 2490 2491 2492 2493 2494 2495 2496 249
+> 7 2498
+
+. foreach i of local lo_ids {
+  2.     quietly regress yrsed c.hiseg#c.placebo_post female census1990 census20
+> 00 ///
+>         i.countyfip i.birthyr if obs_id != `i'
+  3.     local b = _b[c.hiseg#c.placebo_post]
+  4.     local loo_min = min(`loo_min', `b')
+  5.     local loo_max = max(`loo_max', `b')
+  6.     local loo_shift = max(`loo_shift', abs(`b' - `b_full'))
+  7. }
+
+. assert `loo_min' <= `b_full' & `b_full' <= `loo_max'
+
+. restore
+
+. 
+. put_num, name(pbLoSegN) value(`n_lo') fmt(%9.0fc) note(Panel B LoSeg people to
+> tal)
+pbLoSegN                 94                        Panel B LoSeg people total
+
+. put_num, name(pbLoSegPreN) value(`n_lo_pre') fmt(%9.0fc) note(Panel B LoSeg bo
+> rn 1921-25)
+pbLoSegPreN              39                        Panel B LoSeg born 1921-25
+
+. put_num, name(pbLoSegPostN) value(`n_lo_post') fmt(%9.0fc) note(Panel B LoSeg 
+> born 1926-30)
+pbLoSegPostN             55                        Panel B LoSeg born 1926-30
+
+. put_num, name(pbHiSegN) value(`n_hi') fmt(%9.0fc) note(Panel B HiSeg people to
+> tal)
+pbHiSegN                 3,404                     Panel B HiSeg people total
+
+. put_num, name(pbLooMin) value(`loo_min') fmt(%5.3f) ///
+>     note(Panel B years of ed leave-one-out over LoSeg people min)
+pbLooMin                 \ensuremath{-}0.591       Panel B years of ed leave-one
+> -out over LoSeg people min
+
+. put_num, name(pbLooMax) value(`loo_max') fmt(%5.3f) ///
+>     note(Panel B years of ed leave-one-out over LoSeg people max)
+pbLooMax                 \ensuremath{-}0.228       Panel B years of ed leave-one
+> -out over LoSeg people max
+
+. put_num, name(pbLooMaxShift) value(`loo_shift') fmt(%5.3f) ///
+>     note(Panel B years of ed largest move from dropping one LoSeg person)
+pbLooMaxShift            0.186                     Panel B years of ed largest m
+> ove from dropping one LoSeg person
+
+. 
+. 
+. * 5. Close
+. ******************************************************************************
+> **
+. 
+. file close tex
+
+. file close csv
+
+. 
+. log close prose
+      name:  prose
+       log:  <repo root>/output/logs/06_prose_numbers.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. 
+. 
+. * 4. Done
+. ******************************************************************************
+> **
+. 
+. if "$only" == "" display "All outputs regenerated: " c(current_date) " " c(cur
+> rent_time)
+All outputs regenerated: <date>
+
+. else display "Ran only $only: " c(current_date) " " c(current_time)
+
+. 
+. * Reset switch for next run
+. global only ""
+
+. 
+. log close master
+      name:  master
+       log:  <repo root>/run.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------

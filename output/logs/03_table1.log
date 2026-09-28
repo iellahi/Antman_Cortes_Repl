@@ -1,0 +1,423 @@
+--------------------------------------------------------------------------------
+      name:  table1
+       log:  <repo root>/output/logs/03_table1.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. * Hispanic, HiSeg/LoSeg counties, born 1931-35 or 1941-45
+. keep if hispanic == 1 & sample_tables == 1 & !missing(hiseg)
+(215,920 observations deleted)
+
+. count
+  5,630
+
+. 
+. 
+. * 1. Helper to Store a Table Column
+. ******************************************************************************
+> **
+. 
+. * Table 1 has outcomes as rows, so each column posted as own "model"
+. * with coefs named yrsed jrhigh hschool. Mean columns get V = 0 (no SE, no sta
+> rs)
+. program define post_column, eclass
+  1.     syntax, b(name) v(name) n(integer) [sd(name) dof(integer 0)]
+  2.     if `dof' > 0 {
+  3.         ereturn post `b' `v', obs(`n') dof(`dof')
+  4.     }
+  5.     else {
+  6.         ereturn post `b' `v', obs(`n')
+  7.     }
+  8.     if "`sd'" != "" ereturn matrix sd = `sd'
+  9.     ereturn local cmd "post_column"
+ 10. end
+
+. 
+. local outcomes "yrsed jrhigh hschool"
+
+. 
+. 
+. * 2. Means and SDs by Group
+. ******************************************************************************
+> **
+. 
+. * p = post_mendez, h = hiseg
+. foreach p in 1 0 {
+  2.     foreach h in 1 0 {
+  3.         matrix M = J(1, 3, .)
+  4.         matrix S = J(1, 3, .)
+  5.         matrix V = J(3, 3, 0)
+  6.         local j = 0
+  7.         foreach var in yrsed jrhigh hschool {
+  8.             local ++j
+  9.             summarize `var' if post_mendez == `p' & hiseg == `h'
+ 10.             matrix M[1, `j'] = r(mean)
+ 11.             matrix S[1, `j'] = r(sd)
+ 12.         }
+ 13.         matrix colnames M = `outcomes'
+ 14.         matrix colnames S = `outcomes'
+ 15.         matrix colnames V = `outcomes'
+ 16.         matrix rownames V = `outcomes'
+ 17.         count if post_mendez == `p' & hiseg == `h'
+ 18.         post_column, b(M) v(V) sd(S) n(`r(N)')
+ 19.         eststo mean_p`p'_h`h'
+ 20.     }
+ 21. }
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |      3,217    11.66895    2.890757          0         20
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |      3,217    .9285048    .2576902          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |      3,217    .6689462    .4706655          0          1
+  3,217
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |        143    12.82517    2.587387          0         19
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |        143     .979021    .1438177          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |        143    .8111888    .3927342          0          1
+  143
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |      2,193    10.12905    3.856012          0         20
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |      2,193    .7774738    .4160375          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |      2,193    .4787962    .4996641          0          1
+  2,193
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+       yrsed |         77    12.05195    2.310708          5         19
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+      jrhigh |         77     .974026    .1601008          0          1
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+     hschool |         77    .7012987    .4606898          0          1
+  77
+
+. 
+. 
+. * 3. HiSeg - LoSeg Gap Within Cohort
+. ******************************************************************************
+> **
+. 
+. foreach p in 1 0 {
+  2.     matrix B = J(1, 3, .)
+  3.     matrix V = J(3, 3, 0)
+  4.     local j = 0
+  5.     foreach var in yrsed jrhigh hschool {
+  6.         local ++j
+  7.         regress `var' hiseg if post_mendez == `p', robust
+  8.         matrix B[1, `j'] = _b[hiseg]
+  9.         matrix V[`j', `j'] = _se[hiseg]^2
+ 10.         * same N, df for all 3
+.         if `j' == 1 {
+ 11.             local n = e(N)
+ 12.             local df = e(df_r)
+ 13.         }
+ 14.         assert e(N) == `n' & e(df_r) == `df'
+ 15.     }
+ 16.     matrix colnames B = `outcomes'
+ 17.     matrix colnames V = `outcomes'
+ 18.     matrix rownames V = `outcomes'
+ 19.     post_column, b(B) v(V) n(`n') dof(`df')
+ 20.     eststo gap_p`p'
+ 21. }
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      27.22
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0065
+                                                Root MSE          =     2.8786
+
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -1.156229   .2216164    -5.22   0.000    -1.590745   -.7217118
+       _cons |   12.82517   .2156745    59.47   0.000     12.40231    13.24804
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      15.53
+                                                Prob > F          =     0.0001
+                                                R-squared         =     0.0016
+                                                Root MSE          =     .25391
+
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.0505162   .0128204    -3.94   0.000    -.0756527   -.0253796
+       _cons |    .979021   .0119881    81.67   0.000     .9555163    1.002526
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      3,360
+                                                F(1, 3358)        =      17.74
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0038
+                                                Root MSE          =     .46763
+
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.1422426   .0337724    -4.21   0.000    -.2084592   -.0760259
+       _cons |   .8111888   .0327368    24.78   0.000     .7470027    .8753749
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      49.11
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0083
+                                                Root MSE          =     3.8144
+
+------------------------------------------------------------------------------
+             |               Robust
+       yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -1.922901   .2743817    -7.01   0.000    -2.460966   -1.384836
+       _cons |   12.05195   .2617294    46.05   0.000     11.53869     12.5652
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      94.73
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0075
+                                                Root MSE          =     .41006
+
+------------------------------------------------------------------------------
+             |               Robust
+      jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.1965522   .0201944    -9.73   0.000    -.2361536   -.1569508
+       _cons |    .974026   .0181343    53.71   0.000     .9384644    1.009588
+------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      2,270
+                                                F(1, 2268)        =      17.45
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0065
+                                                Root MSE          =     .49841
+
+------------------------------------------------------------------------------
+             |               Robust
+     hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       hiseg |  -.2225025   .0532616    -4.18   0.000    -.3269491    -.118056
+       _cons |   .7012987   .0521814    13.44   0.000     .5989703    .8036271
+------------------------------------------------------------------------------
+
+. 
+. 
+. * 4. Difference-in-Differences
+. ******************************************************************************
+> **
+. 
+. matrix B = J(1, 3, .)
+
+. matrix V = J(3, 3, 0)
+
+. local j = 0
+
+. foreach var in yrsed jrhigh hschool {
+  2.     local ++j
+  3.     regress `var' c.hiseg##c.post_mendez, robust
+  4.     matrix B[1, `j'] = _b[c.hiseg#c.post_mendez]
+  5.     matrix V[`j', `j'] = _se[c.hiseg#c.post_mendez]^2
+  6.     if `j' == 1 {
+  7.         local n = e(N)
+  8.         local df = e(df_r)
+  9.     }
+ 10.     assert e(N) == `n' & e(df_r) == `df'
+ 11. }
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =     104.17
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0559
+                                                Root MSE          =      3.288
+
+-------------------------------------------------------------------------------
+              |               Robust
+        yrsed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -1.922901   .2743583    -7.01   0.000    -2.460749   -1.385053
+  post_mendez |   .7732268   .3391334     2.28   0.023     .1083945    1.438059
+              |
+      c.hiseg#|
+c.post_mendez |   .7666725   .3526924     2.17   0.030     .0752592    1.458086
+              |
+        _cons |   12.05195   .2617071    46.05   0.000      11.5389    12.56499
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      94.83
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0513
+                                                Root MSE          =     .32598
+
+-------------------------------------------------------------------------------
+              |               Robust
+       jrhigh | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.1965522   .0201927    -9.73   0.000    -.2361376   -.1569668
+  post_mendez |    .004995   .0217377     0.23   0.818    -.0376193    .0476093
+              |
+      c.hiseg#|
+c.post_mendez |    .146036   .0239191     6.11   0.000     .0991453    .1929268
+              |
+        _cons |    .974026   .0181328    53.72   0.000     .9384788    1.009573
+-------------------------------------------------------------------------------
+
+Linear regression                               Number of obs     =      5,630
+                                                F(3, 5626)        =      80.73
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0404
+                                                Root MSE          =     .48028
+
+-------------------------------------------------------------------------------
+              |               Robust
+      hschool | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+--------------+----------------------------------------------------------------
+        hiseg |  -.2225025   .0532571    -4.18   0.000    -.3269069   -.1180982
+  post_mendez |   .1098901   .0615976     1.78   0.074    -.0108649    .2306451
+              |
+      c.hiseg#|
+c.post_mendez |   .0802599   .0630636     1.27   0.203    -.0433691     .203889
+              |
+        _cons |   .7012987    .052177    13.44   0.000     .5990117    .8035857
+-------------------------------------------------------------------------------
+
+. matrix colnames B = `outcomes'
+
+. matrix colnames V = `outcomes'
+
+. matrix rownames V = `outcomes'
+
+. post_column, b(B) v(V) n(`n') dof(`df')
+
+. eststo did
+
+. 
+. 
+. * 5. Export
+. ******************************************************************************
+> **
+. 
+. * Column order follows paper: 1941-45 High, Low, gap; 1931-35 High, Low, gap; 
+> DiD
+. local models "mean_p1_h1 mean_p1_h0 gap_p1 mean_p0_h1 mean_p0_h0 gap_p0 did"
+
+. 
+. * SD in brackets under means, SE in parens under gaps & DiD
+. local cells `"cells("b(fmt(3) star)" "sd(fmt(3) par([ ])) & se(fmt(3) par patt
+> ern(0 0 1 0 0 1 1))")"'
+
+. 
+. local rows `"coeflabels(yrsed "Years of Education" jrhigh "Jr. High (8+ years 
+> of education)" hschool "High School (12+ years of education)")"'
+
+. 
+. * Log copy
+. esttab `models', `cells' star(* 0.10 ** 0.05 *** 0.01) ///
+>     mtitles("Hi 41-45" "Lo 41-45" "Gap 41-45" "Hi 31-35" "Lo 31-35" "Gap 31-35
+> " "DiD") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc)) modelwidth(11)
+
+--------------------------------------------------------------------------------
+> -------------------------------------
+                Hi 41-45       Lo 41-45      Gap 41-45       Hi 31-35       Lo 3
+> 1-35      Gap 31-35            DiD   
+--------------------------------------------------------------------------------
+> -------------------------------------
+yrsed             11.669         12.825         -1.156***      10.129         12
+> .052         -1.923***       0.767** 
+                [2.891]        [2.587]         (0.222)       [3.856]        [2.3
+> 11]         (0.274)        (0.353)   
+jrhigh             0.929          0.979         -0.051***       0.777          0
+> .974         -0.197***       0.146***
+                [0.258]        [0.144]         (0.013)       [0.416]        [0.1
+> 60]         (0.020)        (0.024)   
+hschool            0.669          0.811         -0.142***       0.479          0
+> .701         -0.223***       0.080   
+                [0.471]        [0.393]         (0.034)       [0.500]        [0.4
+> 61]         (0.053)        (0.063)   
+--------------------------------------------------------------------------------
+> -------------------------------------
+N                  3,217            143          3,360          2,193           
+>   77          2,270          5,630   
+--------------------------------------------------------------------------------
+> -------------------------------------
+
+. 
+. * LaTeX fragment (stars need \sym defined in paper preamble)
+. * Long headers split over two lines so table fits the page
+. esttab `models' using "$tab/table1_summary.tex", replace booktabs fragment ///
+>     `cells' star(* 0.10 ** 0.05 *** 0.01) `rows' ///
+>     mgroups("\begin{tabular}{c}Panel A. Treatment group\tabularnewline 1941--4
+> 5 birth cohorts (ages 2--6)\end{tabular}" ///
+>         "\begin{tabular}{c}Panel B. Comparison group\tabularnewline 1931--35 b
+> irth cohorts (ages 12--16)\end{tabular}" "", ///
+>         pattern(1 0 0 1 0 0 1) prefix(\multicolumn{@span}{c}{) suffix(}) span 
+> ///
+>         erepeat(\cmidrule(lr){@span})) ///
+>     mtitles("High" "Low" "\ensuremath{\Delta^{\mathrm{treatment}}}" ///
+>         "High" "Low" "\ensuremath{\Delta^{\mathrm{comparison}}}" ///
+>         "\begin{tabular}{c}\ensuremath{\Delta^{\mathrm{treatment}}}\tabularnew
+> line \ensuremath{-\,\Delta^{\mathrm{comparison}}}\end{tabular}") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc) labels("Number of observati
+> ons")) ///
+>     nonotes
+(file <repo root>/output/tables/table1_summar
+    > y.tex not found)
+(output written to <repo root>/output/tables/table1_summary.tex)
+
+. 
+. * CSV twin
+. esttab `models' using "$tab/table1_summary.csv", replace ///
+>     `cells' star(* 0.10 ** 0.05 *** 0.01) `rows' ///
+>     mtitles("High 1941-45" "Low 1941-45" "Gap 1941-45" "High 1931-35" "Low 193
+> 1-35" "Gap 1931-35" "DiD") ///
+>     nonumbers collabels(none) stats(N, fmt(%9.0fc) labels("Number of observati
+> ons")) ///
+>     nonotes
+(file <repo root>/output/tables/table1_summar
+    > y.csv not found)
+(output written to <repo root>/output/tables/table1_summary.csv)
+
+. 
+. log close table1
+      name:  table1
+       log:  <repo root>/output/logs/03_table1.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------

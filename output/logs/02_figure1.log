@@ -1,0 +1,187 @@
+--------------------------------------------------------------------------------
+      name:  fig1
+       log:  <repo root>/output/logs/02_figure1.log
+  log type:  text
+ opened on:  <date>
+
+. 
+. * Load clean dataset from 01_build_data.do
+. use "$clean/antman_cortes_clean.dta", clear
+
+. datasignature confirm
+  (data unchanged since <date>)
+
+. 
+. 
+. * 1. Data Preparation
+. ******************************************************************************
+> **
+. 
+. * HiSeg & LoSeg counties only
+. keep if !missing(hiseg)
+(154,363 observations deleted)
+
+. count
+  67,187
+
+. 
+. * Group 1: Hispanic in HiSeg
+. gen ed_hisp_hi = yrsed if hispanic == 1 & hiseg == 1
+(55,917 missing values generated)
+
+. label variable ed_hisp_hi "Years of Education, Hispanic in HiSeg"
+
+. 
+. * Group 2: Hispanic in LoSeg
+. gen ed_hisp_lo = yrsed if hispanic == 1 & hiseg == 0
+(66,764 missing values generated)
+
+. label variable ed_hisp_lo "Years of Education, Hispanic in LoSeg"
+
+. 
+. * Group 3: Non-Hispanic White in HiSeg
+. gen ed_white_hi = yrsed if hispanic == 0 & hiseg == 1
+(23,713 missing values generated)
+
+. label variable ed_white_hi "Years of Education, Non-Hispanic White in HiSeg"
+
+. 
+. * Group 4: Non-Hispanic White in LoSeg
+. gen ed_white_lo = yrsed if hispanic == 0 & hiseg == 0
+(55,167 missing values generated)
+
+. label variable ed_white_lo "Years of Education, Non-Hispanic White in LoSeg"
+
+. 
+. * Aggregate to cohort (birth year) means
+. collapse (mean) mean_hisp_hi=ed_hisp_hi ///
+>                 mean_hisp_lo=ed_hisp_lo ///
+>                 mean_white_hi=ed_white_hi ///
+>                 mean_white_lo=ed_white_lo, by(birthyr)
+
+. 
+. * labels for graph
+. label variable mean_hisp_hi "Hispanic in HiSeg"
+
+. label variable mean_hisp_lo "Hispanic in LoSeg"
+
+. label variable mean_white_hi "Non-Hispanic White in HiSeg"
+
+. label variable mean_white_lo "Non-Hispanic White in LoSeg"
+
+. 
+. * Age at Mendez decision (1947) for x-axis
+. gen age1947 = 1947 - birthyr
+
+. label variable age1947 "Age in 1947 (Mendez Decision)"
+
+. 
+. * 1 row / cohort, 1921-45
+. assert _N == 25
+
+. order birthyr age1947
+
+. 
+. * check aggregation
+. list, sep(0) noobs
+
+  +---------------------------------------------------------------+
+  | birthyr   age1947   mean_h~i   mean_h~o   mean_w~i   mean_w~o |
+  |---------------------------------------------------------------|
+  |    1921        26   8.533937       12.4   12.66698   12.57713 |
+  |    1922        25   8.969432       10.8   12.81339    12.4454 |
+  |    1923        24   8.425197     11.875    12.9941   12.85989 |
+  |    1924        23   9.217391      11.75   13.01389   12.46384 |
+  |    1925        22   8.831522         12   12.88897   12.78195 |
+  |    1926        21   9.131507   12.70588   13.07195   12.74797 |
+  |    1927        20    8.77202   13.16667   13.14307   12.69923 |
+  |    1928        19   8.836493         13    13.2193   12.77662 |
+  |    1929        18   9.056701         12   13.18007   12.64304 |
+  |    1930        17    9.40606   11.54545   13.10884   12.78409 |
+  |    1931        16   9.754967   11.76471   13.22005   12.75515 |
+  |    1932        15   9.804706   12.30769   13.34164   12.91471 |
+  |    1933        14   10.08029   11.94444   13.34096   12.91375 |
+  |    1934        13   10.37002   12.17647   13.22533   12.85294 |
+  |    1935        12   10.59958   12.16667   13.42181   12.96709 |
+  |    1936        11   10.80462   11.94737   13.43024   13.06667 |
+  |    1937        10   11.11659   12.28571   13.31032   12.95217 |
+  |    1938         9   10.84909         13   13.52146      12.93 |
+  |    1939         8   11.44124   12.43333   13.52584   13.04626 |
+  |    1940         7   11.01449   11.85714   13.46147   13.30605 |
+  |    1941         6   11.55706      13.25   13.43939   13.29708 |
+  |    1942         5   11.57633   12.56522   13.54221   13.62286 |
+  |    1943         4   11.65007   13.02326   13.59122   13.58052 |
+  |    1944         3   11.71671      12.76   13.72155   13.54759 |
+  |    1945         2   11.79396   12.42857    13.7135   13.71754 |
+  +---------------------------------------------------------------+
+
+. 
+. * Cohort means for repo
+. export delimited using "$tab/fig1_cohort_means.csv", replace
+(file <repo root>/output/tables/fig1_cohort_m
+    > eans.csv not found)
+file <repo root>/output/tables/fig1_cohort_means.csv saved
+
+. 
+. 
+. * 2. Create the Graph
+. ******************************************************************************
+> **
+. 
+. twoway ///
+>     (line mean_white_hi age1947, lcolor(dkgreen) lpattern(longdash) lwidth(med
+> ium)) ///
+>     (line mean_white_lo age1947, lcolor(orange) lpattern(shortdash) lwidth(med
+> ium)) ///
+>     (line mean_hisp_lo age1947, lcolor(red) lpattern(dash) lwidth(medium)) ///
+>     (line mean_hisp_hi age1947, lcolor(navy) lpattern(solid) lwidth(medium)), 
+> ///
+>     ///
+>     /* Y-Axis Label and Range */ ///
+>     ytitle("Average years of education") ///
+>     ylabel(8(1)14, angle(0)) ///
+>     ///
+>     /* X-Axis Setup */ ///
+>     xscale(reverse) ///
+>     xlabel(26(1)2, labsize(small)) ///
+>     ///
+>     /* X-Title with Annotations */ ///
+>     /* separate title lines put text below the numbers */ ///
+>     xtitle(" " "Completed schooling                                           
+>  In school                                            Prior to schooling", siz
+> e(small)) ///
+>     ///
+>     /* Legend Placement */ ///
+>     legend(order(1 "Non-Hispanic White in HiSeg" ///
+>                  2 "Non-Hispanic White in LoSeg" ///
+>                  3 "Hispanic in LoSeg" ///
+>                  4 "Hispanic in HiSeg") ///
+>            ring(0) position(5) cols(1) region(lcolor(black) fcolor(white)) siz
+> e(small)) ///
+>     ///
+>     /* Graph Region */ ///
+>     graphregion(color(white))
+
+. 
+. 
+. * 3. Output the Graph
+. ******************************************************************************
+> **
+. 
+. graph export "$fig/fig1_education_by_cohort.png", replace width(2000)
+(file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.png not found)
+file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.png saved as PNG format
+
+. graph export "$fig/fig1_education_by_cohort.pdf", replace
+file <repo root>/output/figures/fig1_educati
+    > on_by_cohort.pdf saved as PDF format
+
+. 
+. log close fig1
+      name:  fig1
+       log:  <repo root>/output/logs/02_figure1.log
+  log type:  text
+ closed on:  <date>
+--------------------------------------------------------------------------------

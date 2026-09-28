@@ -1,0 +1,13 @@
+
+="",="(1)",="(2)",="(3)"
+="",="Years of education",="Jr. High School",="High School"
+
+="High segregation x placebo post-Mendez cohort",="-0.414",="-0.007",="-0.133*"
+="",="(0.421)",="(0.063)",="(0.069)"
+
+="Mean (y-variable)",="9.042",="0.681",="0.350"
+="Number of observations",="3,498",="3,498",="3,498"
+="R-squared",="0.087",="0.091",="0.045"
+="Birth cohort fixed effects",="Yes",="Yes",="Yes"
+="County fixed effects",="Yes",="Yes",="Yes"
+

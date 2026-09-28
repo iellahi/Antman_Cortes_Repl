@@ -1,0 +1,13 @@
+
+="",="(1)",="(2)",="(3)"
+="",="Years of education",="Jr. High School",="High School"
+
+="High segregation x post-Mendez cohort",="0.913**",="0.153***",="0.090*"
+="",="(0.352)",="(0.035)",="(0.044)"
+
+="Mean (y-variable)",="11.104",="0.872",="0.599"
+="Number of observations",="5,630",="5,630",="5,630"
+="R-squared",="0.107",="0.103",="0.069"
+="Birth cohort fixed effects",="Yes",="Yes",="Yes"
+="County fixed effects",="Yes",="Yes",="Yes"
+
